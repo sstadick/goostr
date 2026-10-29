@@ -131,6 +131,21 @@ fn text() {
     assert(goostr::find_non_ascii_byte("ab\xFF") == 2);
     assert(goostr::to_ascii_lowercase("AZ[É\xFF") == "az[É\xFF");
     assert(goostr::to_ascii_uppercase("az{é\xFF") == "AZ{é\xFF");
+    var lower: u8[258] = [0; 258];
+    var upper: u8[258] = [0; 258];
+    for i in 256 { lower[i + 1] = i as u8; upper[i + 1] = i as u8; }
+    lower[0] = 'A'; lower[257] = 'Z';
+    upper[0] = 'a'; upper[257] = 'z';
+    goostr::make_ascii_lowercase(lower[1..257]);
+    goostr::make_ascii_uppercase(upper[1..257]);
+    for i in 256 {
+        assert(lower[i + 1] == (if i >= 65 && i <= 90 { i + 32 } else { i }) as u8);
+        assert(upper[i + 1] == (if i >= 97 && i <= 122 { i - 32 } else { i }) as u8);
+    }
+    goostr::make_ascii_lowercase(lower[1..1]);
+    goostr::make_ascii_uppercase(upper[1..1]);
+    assert(lower[0] == 'A' && lower[257] == 'Z');
+    assert(upper[0] == 'a' && upper[257] == 'z');
     var mutable: u8[>..] = [];
     mutable.append("aZ\xFF");
     goostr::make_ascii_uppercase(mutable);

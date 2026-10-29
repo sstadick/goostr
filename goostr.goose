@@ -179,11 +179,17 @@ fn find_non_ascii_byte(s: const u8[:]) -> i64 {
 fn is_ascii(s: const u8[:]) -> bool { find_non_ascii_byte(s) < 0 }
 
 fn make_ascii_lowercase(s: u8[:]) {
-    for i in s.len { if s[i] >= 'A' && s[i] <= 'Z' { s[i] += 32; } }
+    for &c in s {
+        let mask: u8 = if c >= 'A' && c <= 'Z' { 32 } else { 0 };
+        c |= mask;
+    }
 }
 
 fn make_ascii_uppercase(s: u8[:]) {
-    for i in s.len { if s[i] >= 'a' && s[i] <= 'z' { s[i] -= 32; } }
+    for &c in s {
+        let mask: u8 = if c >= 'a' && c <= 'z' { 32 } else { 0 };
+        c ^= mask;
+    }
 }
 
 fn to_ascii_lowercase(s: const u8[:]) -> u8[>..] {

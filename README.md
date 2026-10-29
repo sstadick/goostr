@@ -37,9 +37,10 @@ goose run examples/basic.goose
 ```
 
 Tested on macOS ARM64 with `goose version` reporting runtime `4d3da949e563`,
-using both its in-process JIT and a native Clang build. The generated search
-suite also passes with GCC on emulated Linux x86-64, with and without AVX2.
-Native x86 performance and other platforms have not yet been verified.
+using both its in-process JIT and a native Clang build, and on Linux x86-64
+(Ryzen 9 3950X) with the JIT and native GCC builds. AVX2 execution was confirmed
+with coverage instrumentation. The search suite also passes under x86 emulation
+with and without AVX2. Other platforms have not yet been verified.
 
 ## Goose API conventions
 
@@ -128,7 +129,7 @@ accepts a predicate block directly.
   Only AVX2 functions receive the AVX2 compiler target; the rest of the binary
   does not require it. Dispatch checks CPU/OS support and uses 32-byte vectors
   only when there are enough bytes or substring candidates. Wasm SIMD is not
-  implemented. Native performance measurements below cover ARM64 only.
+  implemented. Native performance measurements below cover ARM64 and x86-64.
 
 For repeated searches, preprocess the needle once:
 
@@ -188,8 +189,8 @@ non-overlapping iterators, and all four byte-set operations. Another 21,240
 byte-set cases cover every position around vector/unroll boundaries, empty
 and full sets, duplicates, NUL, and high-bit bytes.
 
-The public search suite passes on native ARM64 and under QEMU x86-64 with
-Haswell (AVX2) and Nehalem (SSE2) CPU models. Separate development checks ran
+The public search suite passes on native ARM64, native x86-64 AVX2, and under
+QEMU x86-64 with Haswell (AVX2) and Nehalem (SSE2) CPU models. Separate development checks ran
 12,832,068 guard-page kernel checks per backend: NEON, SSE2 under Rosetta,
 and scalar with ASan/UBSan, plus AVX2 and SSE2 under QEMU without sanitizers.
 These are correctness checks, not native x86 performance measurements.
@@ -286,8 +287,58 @@ The replacement is not faster than `ByteSet` on every input: a three-byte
 set containing the same byte three times took 32.6 µs versus 24.5 µs before
 (bstr: 34.1 µs), because the old classifier deduplicated it to a one-byte scan.
 The full-set shortcut is retained: searching for an outside byte returns
-without scanning the haystack. None of these timings measure AVX2; that
-backend still needs native x86 benchmarking.
+without scanning the haystack. These M1 timings measure NEON; native AVX2
+measurements follow.
+
+### Native AVX2 measurements
+
+Two complete runs on Marvin's AMD Ryzen 9 3950X (Linux x86-64, 2026-10-29)
+used Goose runtime `4d3da949e563`, GCC 13.3.0 `-O2`, and Rust 1.97.1 release.
+Both implementations were pinned to logical CPU 2 with `taskset -c 2`; each
+workload recorded five alternating samples after warm-up. No global AVX2 or
+`-march=native` flag was used. The public search and bstr differential suites
+passed natively, and instrumented runs confirmed AVX2 dispatch was exercised.
+
+Median of the 17 substring dataset time ratios (Goose / bstr):
+
+| Search mode | Run 1 | Run 2 |
+| --- | ---: | ---: |
+| One-shot forward | 0.83× | 0.83× |
+| Reused forward finder | 1.13× | 1.14× |
+| One-shot reverse | 0.97× | 0.97× |
+| Reused reverse finder | 0.93× | 0.93× |
+
+The 1 MiB two-byte **byte-set** miss took 12.15–12.22 µs versus bstr's
+13.04–13.09 µs. The two-byte **substring** miss remained slower: 23.49–23.58 µs
+versus 15.90–15.98 µs (1.48×). Other repeatable gaps included the 33-byte
+needle end hit (1.25×) and prepared reverse periodic miss (1.41×).
+Byte-set complement calls that return immediately took up to 2.72× bstr's
+time (8.7 versus 3.2 ns). Native AVX2 works, but does not establish universal
+performance parity.
+
+Reproduce on Linux with `taskset -c 2 python3 bench/compare.py --output results.json`
+and the corresponding `--suite byteset` invocation; choose an available CPU.
+
+### ASCII conversion
+
+The in-place ASCII transforms use range-selected masks and unconditional
+OR/XOR stores, following [Goose PR #124](https://github.com/aardappel/goose/pull/124).
+Tests cover all 256 byte values, an unaligned slice with unchanged neighboring
+bytes, and empty slices. ARM64 and native x86-64 differential tests pass.
+
+Using that PR's 8 MiB mixed-ASCII restore-and-convert benchmark (128 iterations),
+adapted to call goostr's functions, mean whole-process times on Marvin were:
+
+| Compiler, generic `-O2` | Lower: before → after | Upper: before → after |
+| --- | ---: | ---: |
+| GCC 13.3 | 1031.4 → 376.5 ms (2.74×) | 918.2 → 378.6 ms (2.43×) |
+| Clang 18.1 | 424.8 → 108.7 ms (3.91×) | 422.4 → 105.8 ms (3.99×) |
+
+Hyperfine used five warmups and twenty runs, `--shell=none`, and CPU-2 affinity.
+Times include initialization, copies, conversion, and checksum; GCC baseline
+timings were more variable. Assembly inspection confirmed unconditional SIMD
+stores after the change; Clang's original loop extracted and stored individual
+lanes conditionally. These are bulk-input results, not a claim for every size.
 
 ## License and attribution
 
