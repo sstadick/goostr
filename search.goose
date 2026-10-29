@@ -2,10 +2,243 @@
 // Copyright (c) 2015 Andrew Gallant. MIT; see LICENSE.
 namespace goostr;
 import std;
+import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
 
-extern "goostr_packed" fn packed(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) -> i64;
-extern "goostr_byte" fn byte_search(s: const u8[:], byte: u8, reverse: bool) -> i64;
-extern "goostr_byteset" fn byteset_search(s: const u8[:], set: const u8[:], reverse: bool, invert: bool) -> i64;
+// Bounded, overlapping loads verify 2..32 bytes without a memcmp call in
+// the candidate loop. All loads stay within both slices.
+inline fn equal_short(s: const u8[:], needle: const u8[:]) -> bool {
+    let n = needle.len;
+    if n >= 16 {
+        return ((goosimd::load_u64(s) ^ goosimd::load_u64(needle)) |
+            (goosimd::load_u64(s[8..]) ^ goosimd::load_u64(needle[8..])) |
+            (goosimd::load_u64(s[n - 16..]) ^ goosimd::load_u64(needle[n - 16..])) |
+            (goosimd::load_u64(s[n - 8..]) ^ goosimd::load_u64(needle[n - 8..]))) == 0;
+    }
+    if n >= 8 {
+        return ((goosimd::load_u64(s) ^ goosimd::load_u64(needle)) |
+            (goosimd::load_u64(s[n - 8..]) ^ goosimd::load_u64(needle[n - 8..]))) == 0;
+    }
+    if n >= 4 {
+        return ((goosimd::load_u32(s) ^ goosimd::load_u32(needle)) |
+            (goosimd::load_u32(s[n - 4..]) ^ goosimd::load_u32(needle[n - 4..]))) == 0;
+    }
+    return ((goosimd::load_u16(s) ^ goosimd::load_u16(needle)) |
+        (goosimd::load_u16(s[n - 2..]) ^ goosimd::load_u16(needle[n - 2..]))) == 0;
+}
+
+fn packed(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) -> i64 {
+    if needle.len > s.len || needle.len < 2 { return -1; }
+    let x = needle[a];
+    let y = needle[b];
+    let count = s.len - needle.len + 1;
+    var xs = s[a..a + count];
+    var ys = s[b..b + count];
+    // Each lane represents a start position with room for the whole needle.
+    while xs.len >= 32 {
+        let vx = goosimd::eq8(goosimd::load32(xs), x);
+        let vy = goosimd::eq8(goosimd::load32(ys), y);
+        var hits = goosimd::mask8(goosimd::bit_and(vx, vy));
+        if hits == 0 {
+            xs = xs[32..];
+            ys = ys[32..];
+            continue;
+        }
+        while hits != 0 {
+            let at = count - xs.len + ctz(hits);
+            if prefilter || equal_short(s[at..], needle) { return at; }
+            hits &= hits - 1;
+        }
+        xs = xs[32..];
+        ys = ys[32..];
+    }
+    for pos in xs.len {
+        let at = count - xs.len + pos;
+        if xs[pos] == x && ys[pos] == y &&
+            (prefilter || equal_short(s[at..], needle)) { return at; }
+    }
+    return -1;
+}
+
+// Cover 16..31 candidate positions with two overlapping 16-byte blocks.
+// Keep this separate so the wide loop does not carry the narrow path's state.
+fn packed_small(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
+    let last = s.len - needle.len + 1 - 16;
+    let x = needle[a];
+    let y = needle[b];
+    let first_x = goosimd::eq8(goosimd::load16(s[a..]), x);
+    let first_y = goosimd::eq8(goosimd::load16(s[b..]), y);
+    let last_x = goosimd::eq8(goosimd::load16(s[a + last..]), x);
+    let last_y = goosimd::eq8(goosimd::load16(s[b + last..]), y);
+    var hits = goosimd::mask8(goosimd::bit_and(first_x, first_y)) |
+        (goosimd::mask8(goosimd::bit_and(last_x, last_y)) << last);
+    while hits != 0 {
+        let at = ctz(hits);
+        if equal_short(s[at..], needle) { return at; }
+        hits &= hits - 1;
+    }
+    return -1;
+}
+
+inline fn small_test(s: const u8[:], a: u8, b: u8, c: u8, count: i64, invert: bool) -> goosimd::Bytes32 {
+    let v = goosimd::load32(s);
+    var hits = goosimd::eq8(v, a);
+    if count >= 2 { hits = goosimd::bit_or(hits, goosimd::eq8(v, b)); }
+    if count == 3 { hits = goosimd::bit_or(hits, goosimd::eq8(v, c)); }
+    if invert { hits = goosimd::bit_not(hits); }
+    return hits;
+}
+
+inline fn small_mask16(s: const u8[:], a: u8, b: u8, c: u8, count: i64, invert: bool) -> u32 {
+    let v = goosimd::load16(s);
+    var hits = goosimd::eq8(v, a);
+    if count >= 2 { hits = goosimd::bit_or(hits, goosimd::eq8(v, b)); }
+    if count == 3 { hits = goosimd::bit_or(hits, goosimd::eq8(v, c)); }
+    let mask = goosimd::mask8(hits);
+    return if invert { mask ^ 0xFFFF } else { mask };
+}
+
+// Count and inversion are constants at the call sites. Misses test four
+// blocks together; a hit resolves the first/last matching lane in order.
+inline fn small_search(s: const u8[:], a: u8, b: u8, c: u8, count: i64, reverse: bool, invert: bool) -> i64 {
+    if s.len < 32 && s.len >= 16 {
+        if !reverse {
+            let first = small_mask16(s, a, b, c, count, invert);
+            if first != 0 { return ctz(first); }
+            let last = small_mask16(s[s.len - 16..], a, b, c, count, invert);
+            return if last != 0 { s.len - 16 + ctz(last) } else { -1 };
+        }
+        let last = small_mask16(s[s.len - 16..], a, b, c, count, invert);
+        if last != 0 { return s.len - 16 + 63 - clz(last); }
+        let first = small_mask16(s, a, b, c, count, invert);
+        return if first != 0 { 63 - clz(first) } else { -1 };
+    }
+    var rest = s;
+    if !reverse {
+        while rest.len >= 128 {
+            let v0 = small_test(rest, a, b, c, count, invert);
+            let v1 = small_test(rest[32..], a, b, c, count, invert);
+            let v2 = small_test(rest[64..], a, b, c, count, invert);
+            let v3 = small_test(rest[96..], a, b, c, count, invert);
+            if goosimd::mask8(goosimd::bit_or(goosimd::bit_or(v0, v1), goosimd::bit_or(v2, v3))) != 0 {
+                let base = s.len - rest.len;
+                let m0 = goosimd::mask8(v0);
+                let m1 = goosimd::mask8(v1);
+                let m2 = goosimd::mask8(v2);
+                if m0 != 0 { return base + ctz(m0); }
+                if m1 != 0 { return base + 32 + ctz(m1); }
+                if m2 != 0 { return base + 64 + ctz(m2); }
+                return base + 96 + ctz(goosimd::mask8(v3));
+            }
+            rest = rest[128..];
+        }
+        while rest.len >= 32 {
+            let hits = goosimd::mask8(small_test(rest, a, b, c, count, invert));
+            if hits != 0 { return s.len - rest.len + ctz(hits); }
+            rest = rest[32..];
+        }
+        // Overlap the last in-bounds block; earlier bytes have already missed.
+        if rest.len > 0 && s.len >= 32 {
+            let hits = goosimd::mask8(small_test(s[s.len - 32..], a, b, c, count, invert));
+            return if hits != 0 { s.len - 32 + ctz(hits) } else { -1 };
+        }
+        for v, i in rest {
+            if (v == a || (count >= 2 && v == b) || (count == 3 && v == c)) != invert {
+                return s.len - rest.len + i;
+            }
+        }
+        return -1;
+    }
+    while rest.len >= 128 {
+        let base = rest.len - 128;
+        let v0 = small_test(rest[base..], a, b, c, count, invert);
+        let v1 = small_test(rest[base + 32..], a, b, c, count, invert);
+        let v2 = small_test(rest[base + 64..], a, b, c, count, invert);
+        let v3 = small_test(rest[base + 96..], a, b, c, count, invert);
+        if goosimd::mask8(goosimd::bit_or(goosimd::bit_or(v0, v1), goosimd::bit_or(v2, v3))) != 0 {
+            let m3 = goosimd::mask8(v3);
+            let m2 = goosimd::mask8(v2);
+            let m1 = goosimd::mask8(v1);
+            if m3 != 0 { return base + 96 + 63 - clz(m3); }
+            if m2 != 0 { return base + 64 + 63 - clz(m2); }
+            if m1 != 0 { return base + 32 + 63 - clz(m1); }
+            return base + 63 - clz(goosimd::mask8(v0));
+        }
+        rest = rest[..base];
+    }
+    while rest.len >= 32 {
+        let base = rest.len - 32;
+        let hits = goosimd::mask8(small_test(rest[base..], a, b, c, count, invert));
+        if hits != 0 { return base + 63 - clz(hits); }
+        rest = rest[..base];
+    }
+    if rest.len > 0 && s.len >= 32 {
+        let hits = goosimd::mask8(small_test(s, a, b, c, count, invert));
+        return if hits != 0 { 63 - clz(hits) } else { -1 };
+    }
+    var end = rest.len;
+    while end > 0 {
+        end -= 1;
+        let v = rest[end];
+        if (v == a || (count >= 2 && v == b) || (count == 3 && v == c)) != invert { return end; }
+    }
+    return -1;
+}
+
+fn byte_search(s: const u8[:], byte: u8, reverse: bool) -> i64 {
+    return small_search(s, byte, 0, 0, 1, reverse, false);
+}
+
+// Copy the constant directly, without a fill-literal temporary.
+const EMPTY_MEMBERS: u8[256] = [0; 256];
+
+fn byteset_search(s: const u8[:], set: const u8[:], reverse: bool, invert: bool) -> i64 {
+    if s.len == 0 { return -1; }
+    if set.len == 0 { return if invert { if reverse { s.len - 1 } else { 0 } } else { -1 }; }
+    if set.len <= 3 {
+        if !invert {
+            if set.len == 1 { return small_search(s, set[0], 0, 0, 1, reverse, false); }
+            if set.len == 2 { return small_search(s, set[0], set[1], 0, 2, reverse, false); }
+            return small_search(s, set[0], set[1], set[2], 3, reverse, false);
+        }
+        if set.len == 1 { return small_search(s, set[0], 0, 0, 1, reverse, true); }
+        if set.len == 2 { return small_search(s, set[0], set[1], 0, 2, reverse, true); }
+        return small_search(s, set[0], set[1], set[2], 3, reverse, true);
+    }
+    var members = EMPTY_MEMBERS;
+    for b in set { members[b] = 1; }
+    if set.len >= 256 {
+        var count = 0;
+        for b in members { count += b; }
+        if count == 256 { return if invert { -1 } else { if reverse { s.len - 1 } else { 0 } }; }
+    }
+    let excluded: u8 = if invert { 1 } else { 0 };
+    if !reverse {
+        var rest = s;
+        while rest.len >= 4 {
+            let base = s.len - rest.len;
+            if members[rest[0]] != excluded { return base; }
+            if members[rest[1]] != excluded { return base + 1; }
+            if members[rest[2]] != excluded { return base + 2; }
+            if members[rest[3]] != excluded { return base + 3; }
+            rest = rest[4..];
+        }
+        for b, i in rest { if members[b] != excluded { return s.len - rest.len + i; } }
+    } else {
+        var end = s.len;
+        while end >= 4 {
+            if members[s[end - 1]] != excluded { return end - 1; }
+            if members[s[end - 2]] != excluded { return end - 2; }
+            if members[s[end - 3]] != excluded { return end - 3; }
+            if members[s[end - 4]] != excluded { return end - 4; }
+            end -= 4;
+        }
+        while end > 0 {
+            end -= 1;
+            if members[s[end]] != excluded { return end; }
+        }
+    }
+    return -1;
+}
 
 // memchr's background-frequency ranks. Smaller means rarer. These select
 // two predictive bytes, not necessarily the first and last needle bytes.
@@ -123,7 +356,11 @@ fn find(f: const Finder&, s: const u8[:]) -> i64 {
     if needle.len > s.len { return -1; }
     if needle.len == 0 { return 0; }
     if needle.len == 1 { return byte_search(s, needle[0], false); }
-    if needle.len <= 32 { return packed(s, needle, f.a, f.b, false); }
+    if needle.len <= 32 {
+        let candidates = s.len - needle.len + 1;
+        if candidates >= 16 && candidates < 32 { return packed_small(s, needle, f.a, f.b); }
+        return packed(s, needle, f.a, f.b, false);
+    }
     if f.two.memory > 0 { return find_two_way(f, s, true); }
     return find_two_way(f, s, false);
 }

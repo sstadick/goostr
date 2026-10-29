@@ -4,21 +4,28 @@ A native [Goose](https://github.com/aardappel/goose) port of the byte-string
 core of Rust's [bstr](https://github.com/BurntSushi/bstr), targeting **bstr
 1.13.1 semantics**. Arbitrary bytes, including NUL and malformed UTF-8, are
 supported. Search is ported from **memchr 2.8.3**, bstr's search engine:
-Goose implements preprocessing, Rabin–Karp, and Two-Way; a bundled C file
-provides SIMD byte and packed-pair kernels. Goose builds that file through
-`goostr.build`. A C compiler is required, including for JIT use; there is no
-Rust runtime dependency. Rust is used only for testing and benchmarking.
+Goose implements preprocessing, Rabin–Karp, Two-Way, and the SIMD byte,
+byte-set, and packed-pair loops. [goosimd](https://github.com/sstadick/goosimd)
+supplies header-only load, comparison, and mask primitives. There is no
+separately compiled search kernel or Rust runtime dependency. Rust is used
+only for testing and benchmarking.
+
+This version requires the proposed [`c_headers` compiler change](https://github.com/aardappel/goose/pull/141)
+and the [companion goosimd changes](https://github.com/sstadick/goosimd/pull/1).
+Imports pin that PR's commit, so no sibling goosimd checkout is needed.
+goosimd is a placeholder whose implementation and API will be replaced.
 
 **This is a core port, not the complete bstr API or universal performance parity.**
 The supported operations and remaining gaps are listed below.
 
 ## Use it
 
-Declare the local package in your program's root file. The path is relative
-to that file, and must point to this directory:
+Declare both packages in your program's root file. Paths are relative to
+that file. Goose requires the root to declare dependencies explicitly:
 
 ```goose
 import goostr from "../goostr";
+import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
 
 fn main() {
     let bytes = "name=goose\xFF\r\ncount=42\n";
@@ -36,11 +43,11 @@ From this directory, run the included example:
 goose run examples/basic.goose
 ```
 
-Tested on macOS ARM64 with `goose version` reporting runtime `4d3da949e563`,
-using both its in-process JIT and a native Clang build, and on Linux x86-64
-(Ryzen 9 3950X) with the JIT and native GCC builds. AVX2 execution was confirmed
-with coverage instrumentation. The search suite also passes under x86 emulation
-with and without AVX2. Other platforms have not yet been verified.
+The goosimd version is tested on Linux x86-64 (Ryzen 9 3950X) with TinyCC,
+GCC, and Clang, using SSE2, AVX2, and forced scalar builds. TinyCC runs the
+scalar fallback and needs no external C compiler for this package. Native
+builds require a C compiler. The emitted C also passes the search suite on
+Apple ARM64 with NEON; the patched compiler's macOS build/JIT is not tested.
 
 ## Goose API conventions
 
@@ -124,12 +131,12 @@ accepts a predicate block directly.
   ineffective. Periodic and nonperiodic search loops are specialized.
 - Reverse substring search uses reverse Two-Way, matching memchr's design.
   Single-byte searches in either direction use unrolled SIMD scans.
-- SIMD targets are ARM64 NEON and runtime-dispatched x86-64 AVX2, with SSE2
-  fallback on older x86-64 CPUs and scalar fallback on other architectures.
-  Only AVX2 functions receive the AVX2 compiler target; the rest of the binary
-  does not require it. Dispatch checks CPU/OS support and uses 32-byte vectors
-  only when there are enough bytes or substring candidates. Wasm SIMD is not
-  implemented. Native performance measurements below cover ARM64 and x86-64.
+- goosimd selects SIMD at compile time: SSE2 by default on x86-64, AVX2 with
+  `-mavx2`, NEON on ARM64, and scalar fallback elsewhere and under TinyCC.
+  Unlike the former C kernels, this version has **no runtime AVX2 dispatch**.
+  An AVX2 build requires an AVX2 CPU. Logical blocks contain 16 or 32 bytes; vector
+  loads stay within the input and only test valid substring start positions.
+  Wasm SIMD is not implemented.
 
 For repeated searches, preprocess the needle once:
 
@@ -150,7 +157,7 @@ reuse preprocessing within each operation. Search allocates no heap memory.
 All four byte-set operations bypass Goose's standard-library `ByteSet`.
 Sets of one, two, or three bytes use four-vector-unrolled SIMD comparisons,
 including reverse searches and searches for bytes **outside** the set.
-Larger sets use a 256-byte stack membership table: one zero-fill, one pass
+Larger sets use a zero-initialized 256-byte stack membership table, one pass
 over the set, and a scalar scan. Empty sets and empty inputs are handled
 directly; full sets are detected before scanning the haystack. Duplicate
 members, NUL, and high-bit bytes are supported.
@@ -169,7 +176,7 @@ remain scalar. UTF-8 optimization is outside this search work.
 
 ## Tests
 
-The native suite requires Goose and its C toolchain:
+Use the patched Goose compiler. Native tests also require its C toolchain:
 
 ```sh
 goose run tests/test.goose --debug
@@ -189,11 +196,14 @@ non-overlapping iterators, and all four byte-set operations. Another 21,240
 byte-set cases cover every position around vector/unroll boundaries, empty
 and full sets, duplicates, NUL, and high-bit bytes.
 
-The public search suite passes on native ARM64, native x86-64 AVX2, and under
-QEMU x86-64 with Haswell (AVX2) and Nehalem (SSE2) CPU models. Separate development checks ran
-12,832,068 guard-page kernel checks per backend: NEON, SSE2 under Rosetta,
-and scalar with ASan/UBSan, plus AVX2 and SSE2 under QEMU without sanitizers.
-These are correctness checks, not native x86 performance measurements.
+The current search suite passes with TinyCC at `-O0` and `-O2`, and native
+GCC/Clang SSE2, AVX2, and scalar builds. Each native x86 variant also passed
+8,840 guard-page cases with inputs abutting inaccessible pages at either end.
+Clang ASan/UBSan runs passed the search and guard-page suites on x86 AVX2.
+Apple Clang passed the search suite with NEON, both normally and under
+ASan/UBSan, along with the guard-page checks, using Linux-emitted C with
+only the header include path changed.
+Earlier QEMU results applied to the former C kernels, not this migration.
 
 Differential testing additionally requires Cargo, Python 3, and a C compiler
 usable by `goose build`. Cargo downloads the pinned Rust test dependencies
@@ -215,6 +225,21 @@ whitespace, overlapping patterns, and longer random binary and Unicode data.
 python3 bench/compare.py --output search-results.json
 python3 bench/compare.py --suite byteset --output byteset-results.json
 ```
+
+The default build uses the native compiler's default target (SSE2 on x86-64).
+For AVX2 on a compatible machine, compile the emitted C explicitly:
+
+```sh
+OUT=$(mktemp -d)
+goose --standalone -o "$OUT/search.c" bench/search.goose
+gcc -O2 -mavx2 "$OUT/search.c" bench/opaque.c -o "$OUT/search" -lm -pthread -ldl
+taskset -c 2 python3 bench/compare.py --goose-exe "$OUT/search" --output search-avx2.json
+taskset -c 2 python3 bench/compare.py --goose-exe "$OUT/search" --suite byteset --output byteset-avx2.json
+```
+
+These commands are for Linux; choose an available CPU. Add `--baseline-exe`
+to include a previously built goostr binary in the same alternating samples.
+The JSON then includes `baseline_ns` and `baseline_ratio` (new / baseline).
 
 This builds Goose with `-O2` and the pinned Rust oracle in release mode, then
 compares 17 deterministic datasets in four modes: one-shot `find`/`rfind` and
@@ -241,6 +266,51 @@ The script uses a fresh `GOOSE_HOME` for each build. Goose runtime
 `4d3da949e563` otherwise reuses native-package C objects across debug and
 release builds, which can silently benchmark unoptimized kernels. Use
 separate `GOOSE_HOME` directories for your own debug/release builds too.
+
+## Current goosimd results
+
+Measured on Marvin's Ryzen 9 3950X with GCC 13.3.0 `-O2 -mavx2`, the patched
+Goose compiler (runtime `f2981814a754`), and bstr 1.13.1. Before/after binaries
+and bstr ran in alternating order, pinned to CPU 2, with five samples per
+workload. Both goostr versions used the same compiler and global flags.
+The baseline is the initial Goose/goosimd migration, before restoring the
+16-byte short-input path and removing the redundant table initialization.
+
+| Forward operation | Before tuning | Current | bstr |
+| --- | ---: | ---: | ---: |
+| Prepared tiny substring hit | 10.54 ns | 6.33 ns | 8.72 ns |
+| Prepared tiny substring miss | 14.21 ns | 5.02 ns | 8.29 ns |
+| Tiny two-byte set miss | 13.82 ns | 5.54 ns | 7.34 ns |
+| Tiny four-byte set first hit | 29.75 ns | 7.76 ns | 6.20 ns |
+| 1 MiB text substring miss | 19.50 µs | 19.85 µs | 23.39 µs |
+| 1 MiB binary substring miss | 19.75 µs | 20.11 µs | 30.97 µs |
+| 1 MiB two-byte substring miss | 18.71 µs | 19.75 µs | 16.01 µs |
+| 1 MiB two-byte set miss | 12.17 µs | 12.11 µs | 13.10 µs |
+| 1 MiB four-byte set miss | 476.33 µs | 330.51 µs | 530.33 µs |
+
+The 16-byte path uses overlapping blocks without reading outside the input.
+It stays separate from the 32-byte substring loop to avoid increasing that
+loop's register pressure. Table scans are unrolled four bytes at a time.
+Disassembly confirms inlined vector comparisons and masks, and a single
+vectorized table clear rather than two fill passes.
+
+The former C kernels took about 7.35/7.95 ns for prepared tiny hits/misses
+and 6.47 ns for the four-byte-set first hit. The large regressions are gone,
+but **performance parity is not universal**: some early exits still cost
+roughly an extra nanosecond. Text/binary misses increased about 2% versus the
+untuned migration, and the two-byte substring miss about 6%; the latter
+remains slower than bstr. Reverse substring search remains scalar Two-Way.
+
+GCC reports optimization-attribute mismatch warnings at scalar extern
+redeclarations in generated C. The builds and checks pass without suppressing
+them, and the adapters inline; Clang does not emit these warnings. Runtime
+ISA dispatch is not retained: AVX2 is opt-in, and TinyCC uses scalar adapters.
+
+## Historical C-kernel results
+
+The measurements below predate the goosimd migration. They describe the
+former separately compiled C kernels and are retained for comparison;
+they are not measurements of the current implementation.
 
 ### Measured results, not universal parity
 

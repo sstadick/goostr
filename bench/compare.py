@@ -72,6 +72,7 @@ def run(exe, haystack, needle, mode, iterations, expected):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--goose-exe", type=Path, help="use an already built baseline")
+    parser.add_argument("--baseline-exe", type=Path, help="also time the former goostr implementation")
     parser.add_argument("--save-exe", type=Path, help="retain the Goose executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples", type=int, default=5)
@@ -99,6 +100,9 @@ def main():
             env = dict(os.environ, GOOSE_HOME=str(tmp / "goose-home"))
             subprocess.run(["goose", "build", str(ROOT / "bench/search.goose"), "-O2", "-v", "-o", str(goose)],
                            env=env, check=True)
+        programs = [("goose", goose), ("bstr", rust)]
+        if options.baseline_exe:
+            programs.append(("baseline", options.baseline_exe.resolve()))
         rows = []
         for name, data, pattern in (byteset_cases() if options.suite == "byteset" else cases()):
             haystack, needle = tmp / "haystack", tmp / "needle"
@@ -112,7 +116,7 @@ def main():
                 else:
                     expected = data.rfind(pattern) if mode.endswith("rfind") else data.find(pattern)
                 iterations = {}
-                for label, exe in (("goose", goose), ("bstr", rust)):
+                for label, exe in programs:
                     count = 1
                     while True:
                         elapsed = run(exe, haystack, needle, mode, count, expected)
@@ -120,10 +124,10 @@ def main():
                             break
                         count *= min(100, max(2, 60_000_000 // max(1, elapsed)))
                     iterations[label] = count
-                times = {"goose": [], "bstr": []}
+                times = {label: [] for label, _ in programs}
                 for sample in range(options.samples):
-                    order = [("goose", goose), ("bstr", rust)]
-                    if sample % 2: order.reverse()
+                    start = sample % len(programs)
+                    order = programs[start:] + programs[:start]
                     for label, exe in order:
                         count = iterations[label]
                         times[label].append(run(exe, haystack, needle, mode, count, expected) / count)
@@ -132,6 +136,9 @@ def main():
                            sha256=hashlib.sha256(data + pattern).hexdigest(),
                            expected=expected, goose_ns=g, bstr_ns=r, ratio=g/r,
                            iterations=iterations, samples=times)
+                if options.baseline_exe:
+                    row["baseline_ns"] = statistics.median(times["baseline"])
+                    row["baseline_ratio"] = g / row["baseline_ns"]
                 rows.append(row)
                 print(f"{name:20} {mode:6} Goose {g:12.1f} ns  bstr {r:12.1f} ns  {g/r:7.2f}x", flush=True)
         options.output.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +157,13 @@ def main():
                         bstr="1.13.1", memchr="2.8.3", goose_flags="-O2", rust_profile="release",
                         suite=options.suite, calibration_target_ms=50, samples=options.samples,
                         prebuilt_goose=bool(options.goose_exe), warmup_passes=1,
-                        scheduling="user-initiated QoS on macOS; no core affinity",
+                        scheduling=(f"CPU affinity {sorted(os.sched_getaffinity(0))}"
+                                    if hasattr(os, "sched_getaffinity") else "user-initiated QoS on macOS"),
                         checkout_sources={path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
-                                 for path in ("goostr.goose", "search.goose", "src/search.c", "src/search-kernels.h", "bench/search.goose",
+                                 for path in ("goostr.goose", "search.goose", "goostr.build", "bench/search.goose",
                                               "bench/opaque.c", "tests/oracle/src/bin/search-bench.rs")})
+        if options.baseline_exe:
+            metadata["baseline_sha256"] = hashlib.sha256(options.baseline_exe.read_bytes()).hexdigest()
         options.output.write_text(json.dumps(dict(environment=metadata, results=rows), indent=2) + "\n")
 
 

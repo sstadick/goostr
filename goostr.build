@@ -1,2 +1,1 @@
-c_sources = ["src/search.c"];
 exclude = ["tests", "bench", ".amp"];

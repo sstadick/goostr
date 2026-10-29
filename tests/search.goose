@@ -1,4 +1,5 @@
 import goostr from "..";
+import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
 
 // Independent membership oracle: no ByteSet or SIMD helpers from the library.
 fn check_set(h: const u8[:], n: const u8[:]) {

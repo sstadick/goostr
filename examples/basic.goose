@@ -1,4 +1,5 @@
 import goostr from "..";
+import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
 
 fn main() {
     let data = "  name=goose\xFF\r\n  count=42\n";

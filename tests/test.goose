@@ -1,4 +1,5 @@
 import goostr from "..";
+import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
 
 // Slice elements compare by identity in this Goose release. Check bytes.
 fn expect_parts(actual: const u8[:][:], expected: const u8[:][:]) {
