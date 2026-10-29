@@ -1,0 +1,7 @@
+/tests/oracle/target/
+/tests/test
+/tests/snapshot
+/tests/search
+/bench/search
+/examples/basic
+__pycache__/
