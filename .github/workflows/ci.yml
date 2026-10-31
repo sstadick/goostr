@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: sstadick/goosdoc
-          ref: cd4bb7d327fa1ad612c6982f4895e17b08738b68 # v0.1.0
+          ref: fb1c32532a913d1309eda9aa6709e3495ae6e133 # v0.2.0
           path: .ci/goosdoc
           persist-credentials: false
       - name: Build Goose
@@ -44,6 +44,13 @@ jobs:
         env:
           GOOSDOC: .ci/goosdoc/main.goose
         run: scripts/docs.sh --check
+      - name: Run documentation examples
+        env:
+          GOOSDOC: .ci/goosdoc/main.goose
+        run: |
+          scripts/doctest.sh
+          scripts/doctest.sh --cc gcc
+          scripts/doctest.sh --cc clang
       - name: Generate release reference
         env:
           GOOSDOC: .ci/goosdoc/main.goose

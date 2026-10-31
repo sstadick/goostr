@@ -305,9 +305,19 @@ const BYTE_RANK: u8[256] = [
 struct TwoWay { critical: i64, period: i64, memory: i64, bytes: u64 }
 // A prepared forward search. Construct with finder, not by setting fields.
 // Borrows its needle; keep the bytes alive and unchanged while using it.
+//
+// ```goose
+// let f: goostr::Finder = goostr::finder("aba");
+// assert(goostr::find(f, "ababa") == 0);
+// ```
 struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
 // A prepared reverse search. Construct with finder_reverse, not by setting
 // fields. Borrows its needle; keep the bytes alive and unchanged while in use.
+//
+// ```goose
+// let f: goostr::FinderReverse = goostr::finder_reverse("aba");
+// assert(goostr::rfind(f, "ababa") == 2);
+// ```
 struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
 
 inline fn suffix(s: const u8[:], maximal: bool, reverse: bool) -> i64, i64 {
@@ -368,6 +378,12 @@ inline fn rare_pair(needle: const u8[:]) -> i64, i64 {
 
 // Preprocess needle for repeated forward searches with find(finder, s).
 // The returned finder borrows needle; do not mutate it while in use.
+//
+// ```goose
+// let f = goostr::finder("needle");
+// assert(goostr::find(f, "a needle") == 2);
+// assert(goostr::find(f, "haystack") == -1);
+// ```
 fn finder(needle: const u8[:]) -> Finder {
     let a, b = rare_pair(needle);
     var f = Finder { needle: needle, a: a, b: b, two: default<TwoWay>() };
@@ -377,6 +393,12 @@ fn finder(needle: const u8[:]) -> Finder {
 
 // Preprocess needle for repeated reverse searches with rfind(finder, s).
 // The returned finder borrows needle; do not mutate it while in use.
+//
+// ```goose
+// let f = goostr::finder_reverse("/");
+// assert(goostr::rfind(f, "a/b/c") == 3);
+// assert(goostr::rfind(f, "name") == -1);
+// ```
 fn finder_reverse(needle: const u8[:]) -> FinderReverse {
     var f = FinderReverse { needle: needle, two: two_way(needle, true), a: 0, b: 0 };
     if needle.len <= 32 {
@@ -420,6 +442,12 @@ inline fn find_small(s: const u8[:], needle: const u8[:], reverse: bool) -> i64 
 
 // Search with a prepared finder. Return the first matching byte offset in s,
 // or -1 if absent. An empty needle returns 0, including for empty input.
+//
+// ```goose
+// let f = goostr::finder("aba");
+// assert(goostr::find(f, "xabababa") == 1);
+// assert(goostr::find(f, "ab") == -1);
+// ```
 fn find(f: const Finder&, s: const u8[:]) -> i64 {
     let needle = f.needle;
     if needle.len > s.len { return -1; }
@@ -488,6 +516,12 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
 
 // Search with a prepared reverse finder. Return the last matching byte offset
 // in s, or -1 if absent. An empty needle returns s.len.
+//
+// ```goose
+// let f = goostr::finder_reverse("aba");
+// assert(goostr::rfind(f, "xabababa") == 5);
+// assert(goostr::rfind(f, "ab") == -1);
+// ```
 fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64 {
     let needle = f.needle;
     if needle.len > s.len { return -1; }
@@ -542,6 +576,12 @@ inline fn rfind_two_way(f: const FinderReverse&, s: const u8[:], periodic: bool)
 
 // Return the first byte offset of needle in s, or -1 if absent. An empty
 // needle returns 0. Arbitrary bytes are accepted; UTF-8 is not required.
+//
+// ```goose
+// assert(goostr::find("é\0abc", "\0a") == 2); // Byte offset, not character index.
+// assert(goostr::find("abc", "") == 0);
+// assert(goostr::find("abc", "x") == -1);
+// ```
 fn find(s: const u8[:], needle: const u8[:]) -> i64 {
     if s.len < 64 { return find_small(s, needle, false); }
     if needle.len > s.len { return -1; }
@@ -551,6 +591,12 @@ fn find(s: const u8[:], needle: const u8[:]) -> i64 {
 
 // Return the last byte offset of needle in s, or -1 if absent. An empty
 // needle returns s.len. Arbitrary bytes are accepted; UTF-8 is not required.
+//
+// ```goose
+// assert(goostr::rfind("ababa", "aba") == 2);
+// assert(goostr::rfind("abc", "") == 3);
+// assert(goostr::rfind("abc", "x") == -1);
+// ```
 fn rfind(s: const u8[:], needle: const u8[:]) -> i64 {
     if s.len < 64 { return find_small(s, needle, true); }
     if needle.len > s.len { return -1; }

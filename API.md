@@ -68,7 +68,7 @@
 
 ## `goostr::Finder`
 
-[source](search.goose#L308-L308)
+[source](search.goose#L313-L313)
 
 ```goose
 struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
@@ -77,11 +77,16 @@ struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
 A prepared forward search. Construct with finder, not by setting fields.
 Borrows its needle; keep the bytes alive and unchanged while using it.
 
+```goose
+let f: goostr::Finder = goostr::finder("aba");
+assert(goostr::find(f, "ababa") == 0);
+```
+
 <a id="api-2"></a>
 
 ## `goostr::FinderReverse`
 
-[source](search.goose#L311-L311)
+[source](search.goose#L321-L321)
 
 ```goose
 struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
@@ -90,11 +95,16 @@ struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
 A prepared reverse search. Construct with finder_reverse, not by setting
 fields. Borrows its needle; keep the bytes alive and unchanged while in use.
 
+```goose
+let f: goostr::FinderReverse = goostr::finder_reverse("aba");
+assert(goostr::rfind(f, "ababa") == 2);
+```
+
 <a id="api-3"></a>
 
 ## `goostr::finder`
 
-[source](search.goose#L371-L376)
+[source](search.goose#L387-L392)
 
 ```goose
 fn finder(needle: const u8[:]) -> Finder
@@ -103,11 +113,17 @@ fn finder(needle: const u8[:]) -> Finder
 Preprocess needle for repeated forward searches with find(finder, s).
 The returned finder borrows needle; do not mutate it while in use.
 
+```goose
+let f = goostr::finder("needle");
+assert(goostr::find(f, "a needle") == 2);
+assert(goostr::find(f, "haystack") == -1);
+```
+
 <a id="api-4"></a>
 
 ## `goostr::finder_reverse`
 
-[source](search.goose#L380-L388)
+[source](search.goose#L402-L410)
 
 ```goose
 fn finder_reverse(needle: const u8[:]) -> FinderReverse
@@ -116,11 +132,17 @@ fn finder_reverse(needle: const u8[:]) -> FinderReverse
 Preprocess needle for repeated reverse searches with rfind(finder, s).
 The returned finder borrows needle; do not mutate it while in use.
 
+```goose
+let f = goostr::finder_reverse("/");
+assert(goostr::rfind(f, "a/b/c") == 3);
+assert(goostr::rfind(f, "name") == -1);
+```
+
 <a id="api-5"></a>
 
 ## `goostr::find`
 
-[source](search.goose#L423-L435)
+[source](search.goose#L451-L463)
 
 ```goose
 fn find(f: const Finder&, s: const u8[:]) -> i64
@@ -129,11 +151,17 @@ fn find(f: const Finder&, s: const u8[:]) -> i64
 Search with a prepared finder. Return the first matching byte offset in s,
 or -1 if absent. An empty needle returns 0, including for empty input.
 
+```goose
+let f = goostr::finder("aba");
+assert(goostr::find(f, "xabababa") == 1);
+assert(goostr::find(f, "ab") == -1);
+```
+
 <a id="api-6"></a>
 
 ## `goostr::rfind`
 
-[source](search.goose#L491-L507)
+[source](search.goose#L525-L541)
 
 ```goose
 fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64
@@ -142,11 +170,17 @@ fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64
 Search with a prepared reverse finder. Return the last matching byte offset
 in s, or -1 if absent. An empty needle returns s.len.
 
+```goose
+let f = goostr::finder_reverse("aba");
+assert(goostr::rfind(f, "xabababa") == 5);
+assert(goostr::rfind(f, "ab") == -1);
+```
+
 <a id="api-7"></a>
 
 ## `goostr::find`
 
-[source](search.goose#L545-L550)
+[source](search.goose#L585-L590)
 
 ```goose
 fn find(s: const u8[:], needle: const u8[:]) -> i64
@@ -155,11 +189,17 @@ fn find(s: const u8[:], needle: const u8[:]) -> i64
 Return the first byte offset of needle in s, or -1 if absent. An empty
 needle returns 0. Arbitrary bytes are accepted; UTF-8 is not required.
 
+```goose
+assert(goostr::find("é\0abc", "\0a") == 2); // Byte offset, not character index.
+assert(goostr::find("abc", "") == 0);
+assert(goostr::find("abc", "x") == -1);
+```
+
 <a id="api-8"></a>
 
 ## `goostr::rfind`
 
-[source](search.goose#L554-L565)
+[source](search.goose#L600-L611)
 
 ```goose
 fn rfind(s: const u8[:], needle: const u8[:]) -> i64
@@ -168,11 +208,17 @@ fn rfind(s: const u8[:], needle: const u8[:]) -> i64
 Return the last byte offset of needle in s, or -1 if absent. An empty
 needle returns s.len. Arbitrary bytes are accepted; UTF-8 is not required.
 
+```goose
+assert(goostr::rfind("ababa", "aba") == 2);
+assert(goostr::rfind("abc", "") == 3);
+assert(goostr::rfind("abc", "x") == -1);
+```
+
 <a id="api-9"></a>
 
 ## `goostr::contains_str`
 
-[source](goostr.goose#L11-L11)
+[source](goostr.goose#L16-L16)
 
 ```goose
 fn contains_str(s: const u8[:], needle: const u8[:]) -> bool
@@ -180,11 +226,16 @@ fn contains_str(s: const u8[:], needle: const u8[:]) -> bool
 
 Return whether needle occurs in s. An empty needle always matches.
 
+```goose
+assert(goostr::contains_str("a\0b", "\0"));
+assert(!goostr::contains_str("goose", "duck"));
+```
+
 <a id="api-10"></a>
 
 ## `goostr::starts_with_str`
 
-[source](goostr.goose#L13-L13)
+[source](goostr.goose#L23-L23)
 
 ```goose
 fn starts_with_str(s: const u8[:], prefix: const u8[:]) -> bool
@@ -192,11 +243,16 @@ fn starts_with_str(s: const u8[:], prefix: const u8[:]) -> bool
 
 Return whether s begins with prefix. An empty prefix always matches.
 
+```goose
+assert(goostr::starts_with_str("goose", "goo"));
+assert(!goostr::starts_with_str("goose", "ose"));
+```
+
 <a id="api-11"></a>
 
 ## `goostr::ends_with_str`
 
-[source](goostr.goose#L15-L15)
+[source](goostr.goose#L30-L30)
 
 ```goose
 fn ends_with_str(s: const u8[:], suffix: const u8[:]) -> bool
@@ -204,11 +260,16 @@ fn ends_with_str(s: const u8[:], suffix: const u8[:]) -> bool
 
 Return whether s ends with suffix. An empty suffix always matches.
 
+```goose
+assert(goostr::ends_with_str("notes.txt", ".txt"));
+assert(!goostr::ends_with_str("notes.txt", ".csv"));
+```
+
 <a id="api-12"></a>
 
 ## `goostr::find_byte`
 
-[source](goostr.goose#L18-L20)
+[source](goostr.goose#L38-L40)
 
 ```goose
 fn find_byte(s: const u8[:], byte: u8) -> i64
@@ -216,11 +277,16 @@ fn find_byte(s: const u8[:], byte: u8) -> i64
 
 Return the first byte offset matching byte, or -1 if absent.
 
+```goose
+assert(goostr::find_byte("goose", 'o') == 1);
+assert(goostr::find_byte("goose", 'x') == -1);
+```
+
 <a id="api-13"></a>
 
 ## `goostr::rfind_byte`
 
-[source](goostr.goose#L23-L25)
+[source](goostr.goose#L48-L50)
 
 ```goose
 fn rfind_byte(s: const u8[:], byte: u8) -> i64
@@ -228,11 +294,16 @@ fn rfind_byte(s: const u8[:], byte: u8) -> i64
 
 Return the last byte offset matching byte, or -1 if absent.
 
+```goose
+assert(goostr::rfind_byte("goose", 'o') == 2);
+assert(goostr::rfind_byte("goose", 'x') == -1);
+```
+
 <a id="api-14"></a>
 
 ## `goostr::find_byteset`
 
-[source](goostr.goose#L29-L31)
+[source](goostr.goose#L59-L61)
 
 ```goose
 fn find_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -241,11 +312,16 @@ fn find_byteset(s: const u8[:], set: const u8[:]) -> i64
 Return the first offset of any byte in set, or -1 if absent.
 Duplicates in set have no effect; an empty set never matches.
 
+```goose
+assert(goostr::find_byteset("abc,def;ghi", ",;") == 3);
+assert(goostr::find_byteset("abc", "") == -1);
+```
+
 <a id="api-15"></a>
 
 ## `goostr::find_not_byteset`
 
-[source](goostr.goose#L35-L37)
+[source](goostr.goose#L70-L72)
 
 ```goose
 fn find_not_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -254,11 +330,16 @@ fn find_not_byteset(s: const u8[:], set: const u8[:]) -> i64
 Return the first offset of a byte outside set, or -1 if none exists.
 An empty set matches every byte; empty input still returns -1.
 
+```goose
+assert(goostr::find_not_byteset("  \tname", " \t") == 3);
+assert(goostr::find_not_byteset("  ", " ") == -1);
+```
+
 <a id="api-16"></a>
 
 ## `goostr::rfind_byteset`
 
-[source](goostr.goose#L41-L43)
+[source](goostr.goose#L81-L83)
 
 ```goose
 fn rfind_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -267,11 +348,16 @@ fn rfind_byteset(s: const u8[:], set: const u8[:]) -> i64
 Return the last offset of any byte in set, or -1 if absent.
 Duplicates in set have no effect; an empty set never matches.
 
+```goose
+assert(goostr::rfind_byteset("abc,def;ghi", ",;") == 7);
+assert(goostr::rfind_byteset("abc", "") == -1);
+```
+
 <a id="api-17"></a>
 
 ## `goostr::rfind_not_byteset`
 
-[source](goostr.goose#L47-L49)
+[source](goostr.goose#L92-L94)
 
 ```goose
 fn rfind_not_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -280,11 +366,16 @@ fn rfind_not_byteset(s: const u8[:], set: const u8[:]) -> i64
 Return the last offset of a byte outside set, or -1 if none exists.
 An empty set matches every byte; empty input still returns -1.
 
+```goose
+assert(goostr::rfind_not_byteset("name \t ", " \t") == 3);
+assert(goostr::rfind_not_byteset("", "") == -1);
+```
+
 <a id="api-18"></a>
 
 ## `goostr::find_iter`
 
-[source](goostr.goose#L54-L65)
+[source](goostr.goose#L105-L116)
 
 ```goose
 fn find_iter<F>(s: const u8[:], needle: const u8[:])
@@ -294,11 +385,17 @@ Call F(byte_offset) for non-overlapping matches, from left to right.
 Empty needles match every byte boundary, including both ends and positions
 inside a UTF-8 codepoint.
 
+```goose
+var offsets: i64[>..] = [];
+goostr::find_iter("ababa", "aba") { at => offsets.push(at); }
+assert(offsets.len == 1 && offsets[0] == 0); // Matches do not overlap.
+```
+
 <a id="api-19"></a>
 
 ## `goostr::rfind_iter`
 
-[source](goostr.goose#L70-L79)
+[source](goostr.goose#L127-L136)
 
 ```goose
 fn rfind_iter<F>(s: const u8[:], needle: const u8[:])
@@ -308,11 +405,17 @@ Call F(byte_offset) for non-overlapping matches, from right to left.
 Empty needles match every byte boundary, including both ends and positions
 inside a UTF-8 codepoint. Reverse matches may differ from forward matches.
 
+```goose
+var offsets: i64[>..] = [];
+goostr::rfind_iter("ababa", "aba") { at => offsets.push(at); }
+assert(offsets.len == 1 && offsets[0] == 2);
+```
+
 <a id="api-20"></a>
 
 ## `goostr::splitn_str`
 
-[source](goostr.goose#L85-L97)
+[source](goostr.goose#L148-L160)
 
 ```goose
 fn splitn_str<F>(s: const u8[:], needle: const u8[:], n: i64)
@@ -323,11 +426,17 @@ Views borrow s and omit separators; the last piece contains the remainder.
 Zero yields no pieces; negative n asserts. Empty needles split at every
 byte boundary, including both ends. Empty pieces are retained.
 
+```goose
+var parts: const u8[:][>..] = [];
+goostr::splitn_str("a:b:c", ":", 2) { part => parts.push(part); }
+assert(parts.len == 2 && parts[0] == "a" && parts[1] == "b:c");
+```
+
 <a id="api-21"></a>
 
 ## `goostr::split_str`
 
-[source](goostr.goose#L102-L104)
+[source](goostr.goose#L171-L173)
 
 ```goose
 fn split_str<F>(s: const u8[:], needle: const u8[:])
@@ -337,11 +446,17 @@ Call F(piece) for all pieces split on non-overlapping needle matches,
 from left to right. Views borrow s and omit separators; empty pieces are
 retained. Empty needles split at every byte boundary, including both ends.
 
+```goose
+var parts: const u8[:][>..] = [];
+goostr::split_str("a::b::", "::") { part => parts.push(part); }
+assert(parts.len == 3 && parts[1] == "b" && parts[2] == "");
+```
+
 <a id="api-22"></a>
 
 ## `goostr::rsplitn_str`
 
-[source](goostr.goose#L110-L122)
+[source](goostr.goose#L185-L197)
 
 ```goose
 fn rsplitn_str<F>(s: const u8[:], needle: const u8[:], n: i64)
@@ -352,11 +467,17 @@ Views borrow s and omit separators; the last piece contains the remainder.
 Zero yields no pieces; negative n asserts. Empty needles split at every
 byte boundary, including both ends. Empty pieces are retained.
 
+```goose
+var parts: const u8[:][>..] = [];
+goostr::rsplitn_str("a:b:c", ":", 2) { part => parts.push(part); }
+assert(parts.len == 2 && parts[0] == "c" && parts[1] == "a:b");
+```
+
 <a id="api-23"></a>
 
 ## `goostr::rsplit_str`
 
-[source](goostr.goose#L127-L129)
+[source](goostr.goose#L208-L210)
 
 ```goose
 fn rsplit_str<F>(s: const u8[:], needle: const u8[:])
@@ -366,11 +487,17 @@ Call F(piece) for all pieces split on non-overlapping needle matches,
 from right to left. Views borrow s and omit separators; empty pieces are
 retained. Empty needles split at every byte boundary, including both ends.
 
+```goose
+var parts: const u8[:][>..] = [];
+goostr::rsplit_str("a:b:c", ":") { part => parts.push(part); }
+assert(parts.len == 3 && parts[0] == "c" && parts[2] == "a");
+```
+
 <a id="api-24"></a>
 
 ## `goostr::split_once_str`
 
-[source](goostr.goose#L134-L138)
+[source](goostr.goose#L220-L224)
 
 ```goose
 fn split_once_str(s: const u8[:], needle: const u8[:]) -> const u8[:], const u8[:], bool
@@ -380,11 +507,16 @@ Split at the first needle, returning (left, right, found). Both views
 borrow s and omit the separator; both are empty if absent. An empty needle
 succeeds with an empty left view and all of s on the right.
 
+```goose
+let key, value, found = goostr::split_once_str("name=goose=bird", "=");
+assert(found && key == "name" && value == "goose=bird");
+```
+
 <a id="api-25"></a>
 
 ## `goostr::rsplit_once_str`
 
-[source](goostr.goose#L143-L147)
+[source](goostr.goose#L234-L238)
 
 ```goose
 fn rsplit_once_str(s: const u8[:], needle: const u8[:]) -> const u8[:], const u8[:], bool
@@ -394,11 +526,16 @@ Split at the last needle, returning (left, right, found). Both views
 borrow s and omit the separator; both are empty if absent. An empty needle
 succeeds with all of s on the left and an empty right view.
 
+```goose
+let base, extension, found = goostr::rsplit_once_str("archive.tar.gz", ".");
+assert(found && base == "archive.tar" && extension == "gz");
+```
+
 <a id="api-26"></a>
 
 ## `goostr::replacen_into`
 
-[source](goostr.goose#L152-L164)
+[source](goostr.goose#L250-L262)
 
 ```goose
 fn replacen_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], n: i64, out: u8[>..]&)
@@ -408,11 +545,18 @@ Append s with at most n non-overlapping needle matches replaced, scanning
 left to right. Does not clear out. Zero appends s unchanged; negative n
 asserts. An empty needle inserts at byte boundaries, including both ends.
 
+```goose
+var out: u8[>..] = [];
+out.append("result: ");
+goostr::replacen_into("a-a-a", "-", "/", 1, out);
+assert(out == "result: a/a-a");
+```
+
 <a id="api-27"></a>
 
 ## `goostr::replace_into`
 
-[source](goostr.goose#L169-L171)
+[source](goostr.goose#L274-L276)
 
 ```goose
 fn replace_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], out: u8[>..]&)
@@ -422,11 +566,18 @@ Append s with all non-overlapping needle matches replaced, scanning left
 to right. Does not clear out. An empty needle inserts replacement at every
 byte boundary, including both ends.
 
+```goose
+var out: u8[>..] = [];
+out.append("result: ");
+goostr::replace_into("a\0b", "\0", "/", out);
+assert(out == "result: a/b");
+```
+
 <a id="api-28"></a>
 
 ## `goostr::replacen`
 
-[source](goostr.goose#L176-L180)
+[source](goostr.goose#L286-L290)
 
 ```goose
 fn replacen(s: const u8[:], needle: const u8[:], replacement: const u8[:], n: i64) -> u8[>..]
@@ -436,11 +587,16 @@ Return an owned copy with at most n non-overlapping matches replaced,
 scanning left to right. Zero returns a copy of s; negative n asserts.
 An empty needle inserts at byte boundaries, including both ends.
 
+```goose
+assert(goostr::replacen("a-a-a", "-", "/", 1) == "a/a-a");
+assert(goostr::replacen("abc", "b", "X", 0) == "abc");
+```
+
 <a id="api-29"></a>
 
 ## `goostr::replace`
 
-[source](goostr.goose#L185-L187)
+[source](goostr.goose#L300-L302)
 
 ```goose
 fn replace(s: const u8[:], needle: const u8[:], replacement: const u8[:]) -> u8[>..]
@@ -450,11 +606,16 @@ Return an owned copy with all non-overlapping matches replaced, scanning
 left to right. An empty needle inserts at every byte boundary, including
 both ends; otherwise an absent needle returns a copy of s.
 
+```goose
+assert(goostr::replace("a-a-a", "-", "/") == "a/a/a");
+assert(goostr::replace("ab", "", "-") == "-a-b-");
+```
+
 <a id="api-30"></a>
 
 ## `goostr::repeatn`
 
-[source](goostr.goose#L191-L197)
+[source](goostr.goose#L311-L317)
 
 ```goose
 fn repeatn(s: const u8[:], n: i64) -> u8[>..]
@@ -463,11 +624,16 @@ fn repeatn(s: const u8[:], n: i64) -> u8[>..]
 Return an owned concatenation of n copies of s. Zero or empty input gives
 an empty builder; negative n asserts.
 
+```goose
+assert(goostr::repeatn("ab", 3) == "ababab");
+assert(goostr::repeatn("ab", 0) == "");
+```
+
 <a id="api-31"></a>
 
 ## `goostr::lines_with_terminator`
 
-[source](goostr.goose#L202-L208)
+[source](goostr.goose#L328-L334)
 
 ```goose
 fn lines_with_terminator<F>(s: const u8[:])
@@ -477,11 +643,17 @@ Call F(line) for borrowed lines, retaining their LF or CRLF terminators.
 A final unterminated line is included. Empty input produces no lines, and
 a final terminator does not produce an additional empty line.
 
+```goose
+var rows: const u8[:][>..] = [];
+goostr::lines_with_terminator("a\r\nb\n") { row => rows.push(row); }
+assert(rows.len == 2 && rows[0] == "a\r\n" && rows[1] == "b\n");
+```
+
 <a id="api-32"></a>
 
 ## `goostr::lines`
 
-[source](goostr.goose#L213-L222)
+[source](goostr.goose#L345-L354)
 
 ```goose
 fn lines<F>(s: const u8[:])
@@ -491,11 +663,17 @@ Call F(line) for borrowed lines with LF or CRLF terminators removed.
 A bare CR is data. Empty input produces no lines; a final terminator does
 not produce an additional empty line.
 
+```goose
+var rows: const u8[:][>..] = [];
+goostr::lines("a\r\nb\n") { row => rows.push(row); }
+assert(rows.len == 2 && rows[0] == "a" && rows[1] == "b");
+```
+
 <a id="api-33"></a>
 
 ## `goostr::find_non_ascii_byte`
 
-[source](goostr.goose#L225-L228)
+[source](goostr.goose#L362-L365)
 
 ```goose
 fn find_non_ascii_byte(s: const u8[:]) -> i64
@@ -503,11 +681,16 @@ fn find_non_ascii_byte(s: const u8[:]) -> i64
 
 Return the first offset of a byte >= 128, or -1 if every byte is ASCII.
 
+```goose
+assert(goostr::find_non_ascii_byte("café") == 3);
+assert(goostr::find_non_ascii_byte("goose") == -1);
+```
+
 <a id="api-34"></a>
 
 ## `goostr::is_ascii`
 
-[source](goostr.goose#L231-L231)
+[source](goostr.goose#L373-L373)
 
 ```goose
 fn is_ascii(s: const u8[:]) -> bool
@@ -515,11 +698,16 @@ fn is_ascii(s: const u8[:]) -> bool
 
 Return whether every byte is below 128. Empty input is ASCII.
 
+```goose
+assert(goostr::is_ascii("a\0b"));
+assert(!goostr::is_ascii("café"));
+```
+
 <a id="api-35"></a>
 
 ## `goostr::make_ascii_lowercase`
 
-[source](goostr.goose#L234-L239)
+[source](goostr.goose#L383-L388)
 
 ```goose
 fn make_ascii_lowercase(s: u8[:])
@@ -527,11 +715,18 @@ fn make_ascii_lowercase(s: u8[:])
 
 Convert ASCII A..Z to a..z in place. All other bytes are unchanged.
 
+```goose
+var bytes: u8[>..] = [];
+bytes.append("GOOSE\xFF");
+goostr::make_ascii_lowercase(bytes);
+assert(bytes == "goose\xFF");
+```
+
 <a id="api-36"></a>
 
 ## `goostr::make_ascii_uppercase`
 
-[source](goostr.goose#L242-L247)
+[source](goostr.goose#L398-L403)
 
 ```goose
 fn make_ascii_uppercase(s: u8[:])
@@ -539,11 +734,18 @@ fn make_ascii_uppercase(s: u8[:])
 
 Convert ASCII a..z to A..Z in place. All other bytes are unchanged.
 
+```goose
+var bytes: u8[>..] = [];
+bytes.append("goose\xFF");
+goostr::make_ascii_uppercase(bytes);
+assert(bytes == "GOOSE\xFF");
+```
+
 <a id="api-37"></a>
 
 ## `goostr::to_ascii_lowercase`
 
-[source](goostr.goose#L251-L256)
+[source](goostr.goose#L411-L416)
 
 ```goose
 fn to_ascii_lowercase(s: const u8[:]) -> u8[>..]
@@ -552,11 +754,15 @@ fn to_ascii_lowercase(s: const u8[:]) -> u8[>..]
 Return an owned copy with ASCII A..Z converted to a..z. Non-ASCII bytes
 are unchanged; this is not Unicode case conversion.
 
+```goose
+assert(goostr::to_ascii_lowercase("CAFÉ") == "cafÉ");
+```
+
 <a id="api-38"></a>
 
 ## `goostr::to_ascii_uppercase`
 
-[source](goostr.goose#L260-L265)
+[source](goostr.goose#L424-L429)
 
 ```goose
 fn to_ascii_uppercase(s: const u8[:]) -> u8[>..]
@@ -565,11 +771,15 @@ fn to_ascii_uppercase(s: const u8[:]) -> u8[>..]
 Return an owned copy with ASCII a..z converted to A..Z. Non-ASCII bytes
 are unchanged; this is not Unicode case conversion.
 
+```goose
+assert(goostr::to_ascii_uppercase("café") == "CAFé");
+```
+
 <a id="api-39"></a>
 
 ## `goostr::reverse_bytes`
 
-[source](goostr.goose#L268-L274)
+[source](goostr.goose#L439-L445)
 
 ```goose
 fn reverse_bytes(s: u8[:])
@@ -577,11 +787,18 @@ fn reverse_bytes(s: u8[:])
 
 Reverse bytes in place, without interpreting UTF-8.
 
+```goose
+var bytes: u8[>..] = [];
+bytes.append("a\0bc");
+goostr::reverse_bytes(bytes);
+assert(bytes == "cb\0a");
+```
+
 <a id="api-40"></a>
 
 ## `goostr::reverse_chars`
 
-[source](goostr.goose#L278-L286)
+[source](goostr.goose#L456-L464)
 
 ```goose
 fn reverse_chars(s: u8[:])
@@ -590,11 +807,18 @@ fn reverse_chars(s: u8[:])
 Reverse decoded characters and maximal malformed UTF-8 subparts in place,
 preserving the bytes within each. Does not reverse grapheme clusters.
 
+```goose
+var bytes: u8[>..] = [];
+bytes.append("aé\xFF");
+goostr::reverse_chars(bytes);
+assert(bytes == "\xFFéa");
+```
+
 <a id="api-41"></a>
 
 ## `goostr::escape_bytes`
 
-[source](goostr.goose#L291-L313)
+[source](goostr.goose#L474-L496)
 
 ```goose
 fn escape_bytes(s: const u8[:]) -> u8[>..]
@@ -604,11 +828,16 @@ Return an owned escaped representation. Valid non-ASCII UTF-8 is retained
 (including Unicode controls). Backslashes, NUL, LF, CR and TAB are escaped.
 Invalid bytes use uppercase hex escapes; ASCII space is also escaped.
 
+```goose
+assert(goostr::escape_bytes("a \xFF\n") == "a\\x20\\xFF\\n");
+assert(goostr::escape_bytes("café") == "café");
+```
+
 <a id="api-42"></a>
 
 ## `goostr::decode_utf8`
 
-[source](utf8.goose#L8-L26)
+[source](utf8.goose#L13-L31)
 
 ```goose
 fn decode_utf8(s: const u8[:]) -> i64, i64, bool
@@ -618,11 +847,16 @@ Decode one Unicode scalar, returning (codepoint, consumed bytes, valid).
 Invalid input yields U+FFFD and consumes one maximal subpart. Empty input
 yields (U+FFFD, 0, false). No valid result is a surrogate or above U+10FFFF.
 
+```goose
+let cp, size, valid = goostr::decode_utf8("é!");
+assert(cp == 0xE9 && size == 2 && valid);
+```
+
 <a id="api-43"></a>
 
 ## `goostr::decode_last_utf8`
 
-[source](utf8.goose#L31-L39)
+[source](utf8.goose#L41-L49)
 
 ```goose
 fn decode_last_utf8(s: const u8[:]) -> i64, i64, bool
@@ -632,11 +866,16 @@ Decode the final Unicode scalar, returning (codepoint, consumed bytes,
 valid). Invalid input yields U+FFFD for the final malformed subpart;
 empty input yields (U+FFFD, 0, false).
 
+```goose
+let cp, size, valid = goostr::decode_last_utf8("!é");
+assert(cp == 0xE9 && size == 2 && valid);
+```
+
 <a id="api-44"></a>
 
 ## `goostr::decode_utf8_lossy`
 
-[source](utf8.goose#L43-L46)
+[source](utf8.goose#L58-L61)
 
 ```goose
 fn decode_utf8_lossy(s: const u8[:]) -> i64, i64
@@ -645,11 +884,16 @@ fn decode_utf8_lossy(s: const u8[:]) -> i64, i64
 Return (codepoint, consumed bytes) from the start, replacing a malformed
 maximal subpart with U+FFFD. Empty input returns (U+FFFD, 0).
 
+```goose
+let cp, size = goostr::decode_utf8_lossy("\xE2\x82!");
+assert(cp == 0xFFFD && size == 2);
+```
+
 <a id="api-45"></a>
 
 ## `goostr::decode_last_utf8_lossy`
 
-[source](utf8.goose#L50-L53)
+[source](utf8.goose#L70-L73)
 
 ```goose
 fn decode_last_utf8_lossy(s: const u8[:]) -> i64, i64
@@ -658,11 +902,16 @@ fn decode_last_utf8_lossy(s: const u8[:]) -> i64, i64
 Return (codepoint, consumed bytes) from the end, replacing the final
 malformed subpart with U+FFFD. Empty input returns (U+FFFD, 0).
 
+```goose
+let cp, size = goostr::decode_last_utf8_lossy("!\xE2\x82");
+assert(cp == 0xFFFD && size == 2);
+```
+
 <a id="api-46"></a>
 
 ## `goostr::char_indices`
 
-[source](utf8.goose#L58-L65)
+[source](utf8.goose#L87-L94)
 
 ```goose
 fn char_indices<F>(s: const u8[:])
@@ -672,11 +921,20 @@ Call F(start, end, codepoint) for each decoded scalar or malformed maximal
 subpart, from left to right. Offsets refer to the original bytes; end is
 exclusive. Malformed subparts yield U+FFFD; empty input makes no calls.
 
+```goose
+var starts: i64[>..] = [];
+goostr::char_indices("aé\xFF") { start, end, cp =>
+    starts.push(start);
+    if cp == 0xE9 { assert(start == 1 && end == 3); }
+}
+assert(starts.len == 3 && starts[2] == 3);
+```
+
 <a id="api-47"></a>
 
 ## `goostr::chars`
 
-[source](utf8.goose#L69-L71)
+[source](utf8.goose#L104-L106)
 
 ```goose
 fn chars<F>(s: const u8[:])
@@ -685,11 +943,17 @@ fn chars<F>(s: const u8[:])
 Call F(codepoint) for each decoded scalar, replacing malformed maximal
 subparts with U+FFFD. Empty input makes no calls.
 
+```goose
+var points: i64[>..] = [];
+goostr::chars("é\xFF") { cp => points.push(cp); }
+assert(points.len == 2 && points[0] == 0xE9 && points[1] == 0xFFFD);
+```
+
 <a id="api-48"></a>
 
 ## `goostr::validate_utf8`
 
-[source](utf8.goose#L75-L86)
+[source](utf8.goose#L117-L128)
 
 ```goose
 fn validate_utf8(s: const u8[:]) -> i64, i64
@@ -698,11 +962,18 @@ fn validate_utf8(s: const u8[:]) -> i64, i64
 Returns (valid_up_to, error_len). error_len is 0 on success, -1 for an
 incomplete trailing sequence, or 1..3 for a malformed subpart.
 
+```goose
+let end, error = goostr::validate_utf8("ok\xE2\x82");
+assert(end == 2 && error == -1);
+let valid_end, no_error = goostr::validate_utf8("é");
+assert(valid_end == 2 && no_error == 0);
+```
+
 <a id="api-49"></a>
 
 ## `goostr::is_utf8`
 
-[source](utf8.goose#L89-L92)
+[source](utf8.goose#L136-L139)
 
 ```goose
 fn is_utf8(s: const u8[:]) -> bool
@@ -710,11 +981,16 @@ fn is_utf8(s: const u8[:]) -> bool
 
 Return whether all bytes form valid UTF-8. Empty input is valid.
 
+```goose
+assert(goostr::is_utf8("café"));
+assert(!goostr::is_utf8("caf\xFF"));
+```
+
 <a id="api-50"></a>
 
 ## `goostr::utf8_chunks`
 
-[source](utf8.goose#L96-L105)
+[source](utf8.goose#L154-L163)
 
 ```goose
 fn utf8_chunks<F>(s: const u8[:])
@@ -723,11 +999,22 @@ fn utf8_chunks<F>(s: const u8[:])
 F(valid_bytes, invalid_bytes). Each invalid piece is one maximal subpart;
 both arguments borrow s. Empty input has no chunks.
 
+```goose
+var valid_parts: const u8[:][>..] = [];
+var invalid_parts: const u8[:][>..] = [];
+goostr::utf8_chunks("ok\xFFé") { valid, invalid =>
+    valid_parts.push(valid);
+    invalid_parts.push(invalid);
+}
+assert(valid_parts.len == 2 && valid_parts[0] == "ok" && valid_parts[1] == "é");
+assert(invalid_parts[0] == "\xFF" && invalid_parts[1] == "");
+```
+
 <a id="api-51"></a>
 
 ## `goostr::to_str_lossy_into`
 
-[source](utf8.goose#L109-L114)
+[source](utf8.goose#L174-L179)
 
 ```goose
 fn to_str_lossy_into(s: const u8[:], out: u8[>..]&)
@@ -736,11 +1023,18 @@ fn to_str_lossy_into(s: const u8[:], out: u8[>..]&)
 Append valid UTF-8 to out, replacing each malformed maximal subpart with
 U+FFFD. Does not clear out; valid bytes are preserved unchanged.
 
+```goose
+var out: u8[>..] = [];
+out.append("name: ");
+goostr::to_str_lossy_into("goose\xFF", out);
+assert(out == "name: goose�");
+```
+
 <a id="api-52"></a>
 
 ## `goostr::to_str_lossy`
 
-[source](utf8.goose#L118-L122)
+[source](utf8.goose#L187-L191)
 
 ```goose
 fn to_str_lossy(s: const u8[:]) -> u8[>..]
@@ -749,11 +1043,15 @@ fn to_str_lossy(s: const u8[:]) -> u8[>..]
 Return an owned UTF-8 copy, replacing each malformed maximal subpart with
 U+FFFD. Valid input is copied unchanged.
 
+```goose
+assert(goostr::to_str_lossy("a\xE2\x82!é") == "a�!é");
+```
+
 <a id="api-53"></a>
 
 ## `goostr::is_whitespace`
 
-[source](utf8.goose#L125-L129)
+[source](utf8.goose#L199-L203)
 
 ```goose
 fn is_whitespace(cp: i64) -> bool
@@ -761,11 +1059,16 @@ fn is_whitespace(cp: i64) -> bool
 
 Unicode White_Space, not ASCII-only whitespace or grapheme segmentation.
 
+```goose
+assert(goostr::is_whitespace(0xA0)); // Non-breaking space.
+assert(!goostr::is_whitespace(0x200B)); // Zero-width space is not White_Space.
+```
+
 <a id="api-54"></a>
 
 ## `goostr::trim_start_with`
 
-[source](utf8.goose#L133-L141)
+[source](utf8.goose#L212-L220)
 
 ```goose
 fn trim_start_with<P>(s: const u8[:]) -> const u8[:]
@@ -774,11 +1077,16 @@ fn trim_start_with<P>(s: const u8[:]) -> const u8[:]
 Return a view borrowing s with leading codepoints satisfying P(cp)
 removed. Predicates see U+FFFD for malformed maximal subparts.
 
+```goose
+let name = goostr::trim_start_with("--name--") { cp => cp == '-' };
+assert(name == "name--");
+```
+
 <a id="api-55"></a>
 
 ## `goostr::trim_end_with`
 
-[source](utf8.goose#L145-L153)
+[source](utf8.goose#L229-L237)
 
 ```goose
 fn trim_end_with<P>(s: const u8[:]) -> const u8[:]
@@ -787,11 +1095,16 @@ fn trim_end_with<P>(s: const u8[:]) -> const u8[:]
 Return a view borrowing s with trailing codepoints satisfying P(cp)
 removed. Predicates see U+FFFD for malformed maximal subparts.
 
+```goose
+let name = goostr::trim_end_with("--name--") { cp => cp == '-' };
+assert(name == "--name");
+```
+
 <a id="api-56"></a>
 
 ## `goostr::trim_with`
 
-[source](utf8.goose#L157-L159)
+[source](utf8.goose#L246-L248)
 
 ```goose
 fn trim_with<P>(s: const u8[:]) -> const u8[:]
@@ -800,11 +1113,16 @@ fn trim_with<P>(s: const u8[:]) -> const u8[:]
 Return a view borrowing s with codepoints satisfying P(cp) removed from
 both ends. Predicates see U+FFFD for malformed maximal subparts.
 
+```goose
+let name = goostr::trim_with("--first-last--") { cp => cp == '-' };
+assert(name == "first-last");
+```
+
 <a id="api-57"></a>
 
 ## `goostr::trim_start`
 
-[source](utf8.goose#L162-L162)
+[source](utf8.goose#L255-L255)
 
 ```goose
 fn trim_start(s: const u8[:]) -> const u8[:]
@@ -812,11 +1130,15 @@ fn trim_start(s: const u8[:]) -> const u8[:]
 
 Return a view borrowing s without leading Unicode White_Space.
 
+```goose
+assert(goostr::trim_start("\xC2\xA0name \t") == "name \t"); // Leading NBSP.
+```
+
 <a id="api-58"></a>
 
 ## `goostr::trim_end`
 
-[source](utf8.goose#L164-L164)
+[source](utf8.goose#L261-L261)
 
 ```goose
 fn trim_end(s: const u8[:]) -> const u8[:]
@@ -824,11 +1146,15 @@ fn trim_end(s: const u8[:]) -> const u8[:]
 
 Return a view borrowing s without trailing Unicode White_Space.
 
+```goose
+assert(goostr::trim_end("\t name\xC2\xA0") == "\t name"); // Trailing NBSP.
+```
+
 <a id="api-59"></a>
 
 ## `goostr::trim`
 
-[source](utf8.goose#L166-L166)
+[source](utf8.goose#L267-L267)
 
 ```goose
 fn trim(s: const u8[:]) -> const u8[:]
@@ -836,11 +1162,15 @@ fn trim(s: const u8[:]) -> const u8[:]
 
 Return a view borrowing s without Unicode White_Space at either end.
 
+```goose
+assert(goostr::trim("\xC2\xA0 first last \t") == "first last");
+```
+
 <a id="api-60"></a>
 
 ## `goostr::fields_with`
 
-[source](utf8.goose#L171-L180)
+[source](utf8.goose#L279-L288)
 
 ```goose
 fn fields_with<P, F>(s: const u8[:])
@@ -850,11 +1180,18 @@ Call F(field) for nonempty borrowed fields separated by codepoints for
 which P(cp) is true. Predicates see U+FFFD for malformed maximal subparts;
 the field views retain their original bytes. Empty input makes no calls.
 
+```goose
+fn comma(cp: i64) -> bool { cp == ',' }
+var parts: const u8[:][>..] = [];
+goostr::fields_with(",one,,two,", comma) { part => parts.push(part); }
+assert(parts.len == 2 && parts[0] == "one" && parts[1] == "two");
+```
+
 <a id="api-61"></a>
 
 ## `goostr::fields`
 
-[source](utf8.goose#L184-L184)
+[source](utf8.goose#L298-L298)
 
 ```goose
 fn fields<F>(s: const u8[:])
@@ -862,3 +1199,9 @@ fn fields<F>(s: const u8[:])
 
 Call F(field) for nonempty borrowed fields separated by Unicode
 White_Space. Empty or entirely whitespace input makes no calls.
+
+```goose
+var words: const u8[:][>..] = [];
+goostr::fields(" one\xC2\xA0two\t ") { word => words.push(word); }
+assert(words.len == 2 && words[0] == "one" && words[1] == "two");
+```
