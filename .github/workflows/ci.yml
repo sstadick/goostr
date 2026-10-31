@@ -27,12 +27,33 @@ jobs:
           ref: b46099024b9af8a9f54cd76e24953a89c21ccb3a
           path: .ci/goose
           persist-credentials: false
+      - name: Check out goosdoc
+        uses: actions/checkout@v4
+        with:
+          repository: sstadick/goosdoc
+          ref: cd4bb7d327fa1ad612c6982f4895e17b08738b68 # v0.1.0
+          path: .ci/goosdoc
+          persist-credentials: false
       - name: Build Goose
         run: |
           cmake -S .ci/goose -B .ci/goose/build -DCMAKE_BUILD_TYPE=Debug -DGOOSE_BUILTIN_LIBS=
           cmake --build .ci/goose/build --parallel 2
           echo "$GITHUB_WORKSPACE/.ci/goose/build" >> "$GITHUB_PATH"
           echo "GOOSE_HOME=$RUNNER_TEMP/goostr-home" >> "$GITHUB_ENV"
+      - name: Check API reference
+        env:
+          GOOSDOC: .ci/goosdoc/main.goose
+        run: scripts/docs.sh --check
+      - name: Generate release reference
+        env:
+          GOOSDOC: .ci/goosdoc/main.goose
+          DOC_OUTPUT: ${{ runner.temp }}/API.md
+        run: scripts/docs.sh --source-url "https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-reference
+          path: ${{ runner.temp }}/API.md
+          if-no-files-found: error
       - name: TinyCC tests
         run: |
           for level in 0 2; do
@@ -71,6 +92,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-reference
+          path: docs
       - name: Publish source release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,6 +103,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected vMAJOR.MINOR.PATCH"; exit 1; }
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" docs/API.md --clobber
+          else
+            gh release create "$TAG" docs/API.md --verify-tag --generate-notes
           fi

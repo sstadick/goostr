@@ -25,6 +25,9 @@ fn decode_utf8(s: const u8[:]) -> i64, i64, bool {
     return cp, width, true;
 }
 
+// Decode the final Unicode scalar, returning (codepoint, consumed bytes,
+// valid). Invalid input yields U+FFFD for the final malformed subpart;
+// empty input yields (U+FFFD, 0, false).
 fn decode_last_utf8(s: const u8[:]) -> i64, i64, bool {
     if s.len == 0 { return 0xFFFD, 0, false; }
     var start = s.len - 1;
@@ -35,17 +38,23 @@ fn decode_last_utf8(s: const u8[:]) -> i64, i64, bool {
     return cp, size, valid;
 }
 
+// Return (codepoint, consumed bytes) from the start, replacing a malformed
+// maximal subpart with U+FFFD. Empty input returns (U+FFFD, 0).
 fn decode_utf8_lossy(s: const u8[:]) -> i64, i64 {
     let cp, size, valid = decode_utf8(s);
     return cp, size;
 }
 
+// Return (codepoint, consumed bytes) from the end, replacing the final
+// malformed subpart with U+FFFD. Empty input returns (U+FFFD, 0).
 fn decode_last_utf8_lossy(s: const u8[:]) -> i64, i64 {
     let cp, size, valid = decode_last_utf8(s);
     return cp, size;
 }
 
-// Byte offsets into the original input, even when cp is U+FFFD.
+// Call F(start, end, codepoint) for each decoded scalar or malformed maximal
+// subpart, from left to right. Offsets refer to the original bytes; end is
+// exclusive. Malformed subparts yield U+FFFD; empty input makes no calls.
 fn char_indices<F>(s: const u8[:]) {
     var i = 0;
     while i < s.len {
@@ -55,6 +64,8 @@ fn char_indices<F>(s: const u8[:]) {
     }
 }
 
+// Call F(codepoint) for each decoded scalar, replacing malformed maximal
+// subparts with U+FFFD. Empty input makes no calls.
 fn chars<F>(s: const u8[:]) {
     char_indices(s) { start, end, cp => F(cp); }
 }
@@ -74,6 +85,7 @@ fn validate_utf8(s: const u8[:]) -> i64, i64 {
     return s.len, 0;
 }
 
+// Return whether all bytes form valid UTF-8. Empty input is valid.
 fn is_utf8(s: const u8[:]) -> bool {
     let end, error = validate_utf8(s);
     return error == 0;
@@ -92,6 +104,8 @@ fn utf8_chunks<F>(s: const u8[:]) {
     if start < s.len { F(s[start..], s[s.len..]); }
 }
 
+// Append valid UTF-8 to out, replacing each malformed maximal subpart with
+// U+FFFD. Does not clear out; valid bytes are preserved unchanged.
 fn to_str_lossy_into(s: const u8[:], out: u8[>..]&) {
     utf8_chunks(s) { valid, invalid =>
         out.append(valid);
@@ -99,6 +113,8 @@ fn to_str_lossy_into(s: const u8[:], out: u8[>..]&) {
     }
 }
 
+// Return an owned UTF-8 copy, replacing each malformed maximal subpart with
+// U+FFFD. Valid input is copied unchanged.
 fn to_str_lossy(s: const u8[:]) -> u8[>..] {
     var out: u8[>..] = [];
     to_str_lossy_into(s, out);
@@ -112,6 +128,8 @@ fn is_whitespace(cp: i64) -> bool {
         || cp == 0x2029 || cp == 0x202F || cp == 0x205F || cp == 0x3000;
 }
 
+// Return a view borrowing s with leading codepoints satisfying P(cp)
+// removed. Predicates see U+FFFD for malformed maximal subparts.
 fn trim_start_with<P>(s: const u8[:]) -> const u8[:] {
     var start = 0;
     while start < s.len {
@@ -122,6 +140,8 @@ fn trim_start_with<P>(s: const u8[:]) -> const u8[:] {
     return s[start..];
 }
 
+// Return a view borrowing s with trailing codepoints satisfying P(cp)
+// removed. Predicates see U+FFFD for malformed maximal subparts.
 fn trim_end_with<P>(s: const u8[:]) -> const u8[:] {
     var end = s.len;
     while end > 0 {
@@ -132,14 +152,22 @@ fn trim_end_with<P>(s: const u8[:]) -> const u8[:] {
     return s[..end];
 }
 
+// Return a view borrowing s with codepoints satisfying P(cp) removed from
+// both ends. Predicates see U+FFFD for malformed maximal subparts.
 fn trim_with<P>(s: const u8[:]) -> const u8[:] {
     return trim_end_with(trim_start_with(s, P), P);
 }
 
+// Return a view borrowing s without leading Unicode White_Space.
 fn trim_start(s: const u8[:]) -> const u8[:] { trim_start_with(s, is_whitespace) }
+// Return a view borrowing s without trailing Unicode White_Space.
 fn trim_end(s: const u8[:]) -> const u8[:] { trim_end_with(s, is_whitespace) }
+// Return a view borrowing s without Unicode White_Space at either end.
 fn trim(s: const u8[:]) -> const u8[:] { trim_with(s, is_whitespace) }
 
+// Call F(field) for nonempty borrowed fields separated by codepoints for
+// which P(cp) is true. Predicates see U+FFFD for malformed maximal subparts;
+// the field views retain their original bytes. Empty input makes no calls.
 fn fields_with<P, F>(s: const u8[:]) {
     var start = 0;
     char_indices(s) { a, b, cp =>
@@ -151,4 +179,6 @@ fn fields_with<P, F>(s: const u8[:]) {
     if start < s.len { F(s[start..]); }
 }
 
+// Call F(field) for nonempty borrowed fields separated by Unicode
+// White_Space. Empty or entirely whitespace input makes no calls.
 fn fields<F>(s: const u8[:]) { fields_with(s, is_whitespace, F); }

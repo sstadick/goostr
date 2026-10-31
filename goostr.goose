@@ -7,37 +7,50 @@ import .search;
 
 const UNLIMITED: i64 = 0x7FFFFFFFFFFFFFFF;
 
-// Positions are byte offsets; -1 means not found, as in Goose's std library.
+// Return whether needle occurs in s. An empty needle always matches.
 fn contains_str(s: const u8[:], needle: const u8[:]) -> bool { find(s, needle) >= 0 }
+// Return whether s begins with prefix. An empty prefix always matches.
 fn starts_with_str(s: const u8[:], prefix: const u8[:]) -> bool { ::starts_with(s, prefix) }
+// Return whether s ends with suffix. An empty suffix always matches.
 fn ends_with_str(s: const u8[:], suffix: const u8[:]) -> bool { ::ends_with(s, suffix) }
 
+// Return the first byte offset matching byte, or -1 if absent.
 fn find_byte(s: const u8[:], byte: u8) -> i64 {
     return byte_search(s, byte, false);
 }
 
+// Return the last byte offset matching byte, or -1 if absent.
 fn rfind_byte(s: const u8[:], byte: u8) -> i64 {
     return byte_search(s, byte, true);
 }
 
+// Return the first offset of any byte in set, or -1 if absent.
+// Duplicates in set have no effect; an empty set never matches.
 fn find_byteset(s: const u8[:], set: const u8[:]) -> i64 {
     return byteset_search(s, set, false, false);
 }
 
+// Return the first offset of a byte outside set, or -1 if none exists.
+// An empty set matches every byte; empty input still returns -1.
 fn find_not_byteset(s: const u8[:], set: const u8[:]) -> i64 {
     return byteset_search(s, set, false, true);
 }
 
+// Return the last offset of any byte in set, or -1 if absent.
+// Duplicates in set have no effect; an empty set never matches.
 fn rfind_byteset(s: const u8[:], set: const u8[:]) -> i64 {
     return byteset_search(s, set, true, false);
 }
 
+// Return the last offset of a byte outside set, or -1 if none exists.
+// An empty set matches every byte; empty input still returns -1.
 fn rfind_not_byteset(s: const u8[:], set: const u8[:]) -> i64 {
     return byteset_search(s, set, true, true);
 }
 
-// Callback iteration: matches never overlap. Empty needles match every
-// byte boundary, including both ends (even inside a UTF-8 codepoint).
+// Call F(byte_offset) for non-overlapping matches, from left to right.
+// Empty needles match every byte boundary, including both ends and positions
+// inside a UTF-8 codepoint.
 fn find_iter<F>(s: const u8[:], needle: const u8[:]) {
     let searcher = finder(needle);
     var start = 0;
@@ -51,6 +64,9 @@ fn find_iter<F>(s: const u8[:], needle: const u8[:]) {
     }
 }
 
+// Call F(byte_offset) for non-overlapping matches, from right to left.
+// Empty needles match every byte boundary, including both ends and positions
+// inside a UTF-8 codepoint. Reverse matches may differ from forward matches.
 fn rfind_iter<F>(s: const u8[:], needle: const u8[:]) {
     let searcher = finder_reverse(needle);
     var end = s.len;
@@ -62,8 +78,10 @@ fn rfind_iter<F>(s: const u8[:], needle: const u8[:]) {
     }
 }
 
-// n limits the number of pieces, not the number of separators. Negative n
-// is invalid. Views borrow s; no bytes are copied by splitting or iteration.
+// Call F(piece) for at most n pieces split on needle, from left to right.
+// Views borrow s and omit separators; the last piece contains the remainder.
+// Zero yields no pieces; negative n asserts. Empty needles split at every
+// byte boundary, including both ends. Empty pieces are retained.
 fn splitn_str<F>(s: const u8[:], needle: const u8[:], n: i64) {
     assert(n >= 0);
     if n == 0 { return; }
@@ -78,10 +96,17 @@ fn splitn_str<F>(s: const u8[:], needle: const u8[:], n: i64) {
     F(s[start..]);
 }
 
+// Call F(piece) for all pieces split on non-overlapping needle matches,
+// from left to right. Views borrow s and omit separators; empty pieces are
+// retained. Empty needles split at every byte boundary, including both ends.
 fn split_str<F>(s: const u8[:], needle: const u8[:]) {
     splitn_str(s, needle, UNLIMITED, F);
 }
 
+// Call F(piece) for at most n pieces split on needle, from right to left.
+// Views borrow s and omit separators; the last piece contains the remainder.
+// Zero yields no pieces; negative n asserts. Empty needles split at every
+// byte boundary, including both ends. Empty pieces are retained.
 fn rsplitn_str<F>(s: const u8[:], needle: const u8[:], n: i64) {
     assert(n >= 0);
     if n == 0 { return; }
@@ -96,25 +121,34 @@ fn rsplitn_str<F>(s: const u8[:], needle: const u8[:], n: i64) {
     F(s[..end]);
 }
 
+// Call F(piece) for all pieces split on non-overlapping needle matches,
+// from right to left. Views borrow s and omit separators; empty pieces are
+// retained. Empty needles split at every byte boundary, including both ends.
 fn rsplit_str<F>(s: const u8[:], needle: const u8[:]) {
     rsplitn_str(s, needle, UNLIMITED, F);
 }
 
-// The bool reports whether a separator was found. On failure both views
-// are empty. On success the separator itself is omitted.
+// Split at the first needle, returning (left, right, found). Both views
+// borrow s and omit the separator; both are empty if absent. An empty needle
+// succeeds with an empty left view and all of s on the right.
 fn split_once_str(s: const u8[:], needle: const u8[:]) -> const u8[:], const u8[:], bool {
     let at = find(s, needle);
     if at < 0 { return s[..0], s[..0], false; }
     return s[..at], s[at + needle.len..], true;
 }
 
+// Split at the last needle, returning (left, right, found). Both views
+// borrow s and omit the separator; both are empty if absent. An empty needle
+// succeeds with all of s on the left and an empty right view.
 fn rsplit_once_str(s: const u8[:], needle: const u8[:]) -> const u8[:], const u8[:], bool {
     let at = rfind(s, needle);
     if at < 0 { return s[..0], s[..0], false; }
     return s[..at], s[at + needle.len..], true;
 }
 
-// _into functions append; they never clear the caller's destination.
+// Append s with at most n non-overlapping needle matches replaced, scanning
+// left to right. Does not clear out. Zero appends s unchanged; negative n
+// asserts. An empty needle inserts at byte boundaries, including both ends.
 fn replacen_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], n: i64, out: u8[>..]&) {
     assert(n >= 0);
     var start = 0;
@@ -129,20 +163,31 @@ fn replacen_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], 
     out.append(s[start..]);
 }
 
+// Append s with all non-overlapping needle matches replaced, scanning left
+// to right. Does not clear out. An empty needle inserts replacement at every
+// byte boundary, including both ends.
 fn replace_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], out: u8[>..]&) {
     replacen_into(s, needle, replacement, UNLIMITED, out);
 }
 
+// Return an owned copy with at most n non-overlapping matches replaced,
+// scanning left to right. Zero returns a copy of s; negative n asserts.
+// An empty needle inserts at byte boundaries, including both ends.
 fn replacen(s: const u8[:], needle: const u8[:], replacement: const u8[:], n: i64) -> u8[>..] {
     var out: u8[>..] = [];
     replacen_into(s, needle, replacement, n, out);
     return out;
 }
 
+// Return an owned copy with all non-overlapping matches replaced, scanning
+// left to right. An empty needle inserts at every byte boundary, including
+// both ends; otherwise an absent needle returns a copy of s.
 fn replace(s: const u8[:], needle: const u8[:], replacement: const u8[:]) -> u8[>..] {
     return replacen(s, needle, replacement, UNLIMITED);
 }
 
+// Return an owned concatenation of n copies of s. Zero or empty input gives
+// an empty builder; negative n asserts.
 fn repeatn(s: const u8[:], n: i64) -> u8[>..] {
     assert(n >= 0);
     var out: u8[>..] = [];
@@ -151,6 +196,9 @@ fn repeatn(s: const u8[:], n: i64) -> u8[>..] {
     return out;
 }
 
+// Call F(line) for borrowed lines, retaining their LF or CRLF terminators.
+// A final unterminated line is included. Empty input produces no lines, and
+// a final terminator does not produce an additional empty line.
 fn lines_with_terminator<F>(s: const u8[:]) {
     var start = 0;
     for b, i in s {
@@ -159,7 +207,9 @@ fn lines_with_terminator<F>(s: const u8[:]) {
     if start < s.len { F(s[start..]); }
 }
 
-// Only LF and CRLF terminate lines. A bare CR is ordinary data.
+// Call F(line) for borrowed lines with LF or CRLF terminators removed.
+// A bare CR is data. Empty input produces no lines; a final terminator does
+// not produce an additional empty line.
 fn lines<F>(s: const u8[:]) {
     lines_with_terminator(s) { line =>
         var end = line.len;
@@ -171,13 +221,16 @@ fn lines<F>(s: const u8[:]) {
     }
 }
 
+// Return the first offset of a byte >= 128, or -1 if every byte is ASCII.
 fn find_non_ascii_byte(s: const u8[:]) -> i64 {
     for b, i in s { if b >= 128 { return i; } }
     return -1;
 }
 
+// Return whether every byte is below 128. Empty input is ASCII.
 fn is_ascii(s: const u8[:]) -> bool { find_non_ascii_byte(s) < 0 }
 
+// Convert ASCII A..Z to a..z in place. All other bytes are unchanged.
 fn make_ascii_lowercase(s: u8[:]) {
     for &c in s {
         let mask: u8 = if c >= 'A' && c <= 'Z' { 32 } else { 0 };
@@ -185,6 +238,7 @@ fn make_ascii_lowercase(s: u8[:]) {
     }
 }
 
+// Convert ASCII a..z to A..Z in place. All other bytes are unchanged.
 fn make_ascii_uppercase(s: u8[:]) {
     for &c in s {
         let mask: u8 = if c >= 'a' && c <= 'z' { 32 } else { 0 };
@@ -192,6 +246,8 @@ fn make_ascii_uppercase(s: u8[:]) {
     }
 }
 
+// Return an owned copy with ASCII A..Z converted to a..z. Non-ASCII bytes
+// are unchanged; this is not Unicode case conversion.
 fn to_ascii_lowercase(s: const u8[:]) -> u8[>..] {
     var out: u8[>..] = [];
     out.append(s);
@@ -199,6 +255,8 @@ fn to_ascii_lowercase(s: const u8[:]) -> u8[>..] {
     return out;
 }
 
+// Return an owned copy with ASCII a..z converted to A..Z. Non-ASCII bytes
+// are unchanged; this is not Unicode case conversion.
 fn to_ascii_uppercase(s: const u8[:]) -> u8[>..] {
     var out: u8[>..] = [];
     out.append(s);
@@ -206,6 +264,7 @@ fn to_ascii_uppercase(s: const u8[:]) -> u8[>..] {
     return out;
 }
 
+// Reverse bytes in place, without interpreting UTF-8.
 fn reverse_bytes(s: u8[:]) {
     for i in s.len / 2 {
         let b = s[i];
@@ -214,7 +273,8 @@ fn reverse_bytes(s: u8[:]) {
     }
 }
 
-// Reverse maximal UTF-8 subparts without replacing malformed bytes.
+// Reverse decoded characters and maximal malformed UTF-8 subparts in place,
+// preserving the bytes within each. Does not reverse grapheme clusters.
 fn reverse_chars(s: u8[:]) {
     var i = 0;
     while i < s.len {
@@ -225,7 +285,8 @@ fn reverse_chars(s: u8[:]) {
     reverse_bytes(s);
 }
 
-// Valid non-ASCII UTF-8 is retained (including Unicode controls).
+// Return an owned escaped representation. Valid non-ASCII UTF-8 is retained
+// (including Unicode controls). Backslashes, NUL, LF, CR and TAB are escaped.
 // Invalid bytes use uppercase hex escapes; ASCII space is also escaped.
 fn escape_bytes(s: const u8[:]) -> u8[>..] {
     var out: u8[>..] = [];

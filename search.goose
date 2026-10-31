@@ -303,8 +303,11 @@ const BYTE_RANK: u8[256] = [
 ];
 
 struct TwoWay { critical: i64, period: i64, memory: i64, bytes: u64 }
-// Finders borrow their needle. Do not mutate it while the finder is in use.
+// A prepared forward search. Construct with finder, not by setting fields.
+// Borrows its needle; keep the bytes alive and unchanged while using it.
 struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
+// A prepared reverse search. Construct with finder_reverse, not by setting
+// fields. Borrows its needle; keep the bytes alive and unchanged while in use.
 struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
 
 inline fn suffix(s: const u8[:], maximal: bool, reverse: bool) -> i64, i64 {
@@ -363,6 +366,8 @@ inline fn rare_pair(needle: const u8[:]) -> i64, i64 {
     return a, b;
 }
 
+// Preprocess needle for repeated forward searches with find(finder, s).
+// The returned finder borrows needle; do not mutate it while in use.
 fn finder(needle: const u8[:]) -> Finder {
     let a, b = rare_pair(needle);
     var f = Finder { needle: needle, a: a, b: b, two: default<TwoWay>() };
@@ -370,6 +375,8 @@ fn finder(needle: const u8[:]) -> Finder {
     return f;
 }
 
+// Preprocess needle for repeated reverse searches with rfind(finder, s).
+// The returned finder borrows needle; do not mutate it while in use.
 fn finder_reverse(needle: const u8[:]) -> FinderReverse {
     var f = FinderReverse { needle: needle, two: two_way(needle, true), a: 0, b: 0 };
     if needle.len <= 32 {
@@ -411,6 +418,8 @@ inline fn find_small(s: const u8[:], needle: const u8[:], reverse: bool) -> i64 
     return -1;
 }
 
+// Search with a prepared finder. Return the first matching byte offset in s,
+// or -1 if absent. An empty needle returns 0, including for empty input.
 fn find(f: const Finder&, s: const u8[:]) -> i64 {
     let needle = f.needle;
     if needle.len > s.len { return -1; }
@@ -477,6 +486,8 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
     return -1;
 }
 
+// Search with a prepared reverse finder. Return the last matching byte offset
+// in s, or -1 if absent. An empty needle returns s.len.
 fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64 {
     let needle = f.needle;
     if needle.len > s.len { return -1; }
@@ -529,6 +540,8 @@ inline fn rfind_two_way(f: const FinderReverse&, s: const u8[:], periodic: bool)
     return -1;
 }
 
+// Return the first byte offset of needle in s, or -1 if absent. An empty
+// needle returns 0. Arbitrary bytes are accepted; UTF-8 is not required.
 fn find(s: const u8[:], needle: const u8[:]) -> i64 {
     if s.len < 64 { return find_small(s, needle, false); }
     if needle.len > s.len { return -1; }
@@ -536,6 +549,8 @@ fn find(s: const u8[:], needle: const u8[:]) -> i64 {
     return find(f, s);
 }
 
+// Return the last byte offset of needle in s, or -1 if absent. An empty
+// needle returns s.len. Arbitrary bytes are accepted; UTF-8 is not required.
 fn rfind(s: const u8[:], needle: const u8[:]) -> i64 {
     if s.len < 64 { return find_small(s, needle, true); }
     if needle.len > s.len { return -1; }
