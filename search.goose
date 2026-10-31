@@ -2,7 +2,7 @@
 // Copyright (c) 2015 Andrew Gallant. MIT; see LICENSE.
 namespace goostr;
 import std;
-import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
+import goosimd from "github.com/sstadick/goosimd@d030164f014e366a05bcd45f508e699edec10b89";
 
 // Bounded, overlapping loads verify 2..32 bytes without a memcmp call in
 // the candidate loop. All loads stay within both slices.
@@ -35,12 +35,22 @@ fn packed(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) 
     var ys = s[b..b + count];
     // Each lane represents a start position with room for the whole needle.
     while xs.len >= 32 {
-        let vx = goosimd::eq8(goosimd::load32(xs), x);
-        let vy = goosimd::eq8(goosimd::load32(ys), y);
-        var hits = goosimd::mask8(goosimd::bit_and(vx, vy));
+        let vx = goosimd::load<goosimd::U8x32>(xs).eq(x);
+        let vy = goosimd::load<goosimd::U8x32>(ys).eq(y);
+        var hits = vx.bit_and(vy).to_bits();
         if hits == 0 {
             xs = xs[32..];
             ys = ys[32..];
+            // Scan misses two blocks at a time, without delaying early hits.
+            while xs.len >= 64 {
+                let x0 = goosimd::load<goosimd::U8x32>(xs).eq(x);
+                let y0 = goosimd::load<goosimd::U8x32>(ys).eq(y);
+                let x1 = goosimd::load<goosimd::U8x32>(xs[32..]).eq(x);
+                let y1 = goosimd::load<goosimd::U8x32>(ys[32..]).eq(y);
+                if x0.bit_and(y0).bit_or(x1.bit_and(y1)).to_bits() != 0 { break; }
+                xs = xs[64..];
+                ys = ys[64..];
+            }
             continue;
         }
         while hits != 0 {
@@ -59,41 +69,72 @@ fn packed(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) 
     return -1;
 }
 
-// Cover 16..31 candidate positions with two overlapping 16-byte blocks.
-// Keep this separate so the wide loop does not carry the narrow path's state.
-fn packed_small(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
-    let last = s.len - needle.len + 1 - 16;
+fn packed_reverse(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
+    if needle.len > s.len || needle.len < 2 { return -1; }
     let x = needle[a];
     let y = needle[b];
-    let first_x = goosimd::eq8(goosimd::load16(s[a..]), x);
-    let first_y = goosimd::eq8(goosimd::load16(s[b..]), y);
-    let last_x = goosimd::eq8(goosimd::load16(s[a + last..]), x);
-    let last_y = goosimd::eq8(goosimd::load16(s[b + last..]), y);
-    var hits = goosimd::mask8(goosimd::bit_and(first_x, first_y)) |
-        (goosimd::mask8(goosimd::bit_and(last_x, last_y)) << last);
-    while hits != 0 {
-        let at = ctz(hits);
-        if equal_short(s[at..], needle) { return at; }
-        hits &= hits - 1;
+    let count = s.len - needle.len + 1;
+    var xs = s[a..a + count];
+    var ys = s[b..b + count];
+    while xs.len >= 32 {
+        let start = xs.len - 32;
+        let vx = goosimd::load<goosimd::U8x32>(xs[start..]).eq(x);
+        let vy = goosimd::load<goosimd::U8x32>(ys[start..]).eq(y);
+        var hits = vx.bit_and(vy).to_bits();
+        while hits != 0 {
+            let lane = 63 - clz(hits);
+            let at = start + lane;
+            if equal_short(s[at..], needle) { return at; }
+            hits &= ~((1 as u32) << lane);
+        }
+        xs = xs[..start];
+        ys = ys[..start];
+    }
+    for offset in xs.len {
+        let at = xs.len - 1 - offset;
+        if xs[at] == x && ys[at] == y && equal_short(s[at..], needle) { return at; }
     }
     return -1;
 }
 
-inline fn small_test(s: const u8[:], a: u8, b: u8, c: u8, count: i64, invert: bool) -> goosimd::Bytes32 {
-    let v = goosimd::load32(s);
-    var hits = goosimd::eq8(v, a);
-    if count >= 2 { hits = goosimd::bit_or(hits, goosimd::eq8(v, b)); }
-    if count == 3 { hits = goosimd::bit_or(hits, goosimd::eq8(v, c)); }
-    if invert { hits = goosimd::bit_not(hits); }
+// Cover 16..31 candidate positions with two overlapping 16-byte blocks.
+// Keep this separate so the wide loop does not carry the narrow path's state.
+inline fn packed_small(s: const u8[:], needle: const u8[:], a: i64, b: i64, reverse: bool) -> i64 {
+    let last = s.len - needle.len + 1 - 16;
+    let x = needle[a];
+    let y = needle[b];
+    let xs = s[a..];
+    let ys = s[b..];
+    let first_x = goosimd::load<goosimd::U8x16>(xs).eq(x);
+    let first_y = goosimd::load<goosimd::U8x16>(ys).eq(y);
+    let last_x = goosimd::load<goosimd::U8x16>(xs[last..]).eq(x);
+    let last_y = goosimd::load<goosimd::U8x16>(ys[last..]).eq(y);
+    var hits = first_x.bit_and(first_y).to_bits() |
+        (last_x.bit_and(last_y).to_bits() << last);
+    while hits != 0 {
+        let at = if reverse { 63 - clz(hits) } else { ctz(hits) };
+        if equal_short(s[at..], needle) { return at; }
+        if reverse { hits &= ~((1 as u32) << at); }
+        else { hits &= hits - 1; }
+    }
+    return -1;
+}
+
+inline fn small_test(s: const u8[:], a: u8, b: u8, c: u8, count: i64, invert: bool) -> goosimd::Mask<u8[32]> {
+    let v = goosimd::load<goosimd::U8x32>(s);
+    var hits = v.eq(a);
+    if count >= 2 { hits = hits.bit_or(v.eq(b)); }
+    if count == 3 { hits = hits.bit_or(v.eq(c)); }
+    if invert { hits = hits.bit_not(); }
     return hits;
 }
 
 inline fn small_mask16(s: const u8[:], a: u8, b: u8, c: u8, count: i64, invert: bool) -> u32 {
-    let v = goosimd::load16(s);
-    var hits = goosimd::eq8(v, a);
-    if count >= 2 { hits = goosimd::bit_or(hits, goosimd::eq8(v, b)); }
-    if count == 3 { hits = goosimd::bit_or(hits, goosimd::eq8(v, c)); }
-    let mask = goosimd::mask8(hits);
+    let v = goosimd::load<goosimd::U8x16>(s);
+    var hits = v.eq(a);
+    if count >= 2 { hits = hits.bit_or(v.eq(b)); }
+    if count == 3 { hits = hits.bit_or(v.eq(c)); }
+    let mask = hits.to_bits();
     return if invert { mask ^ 0xFFFF } else { mask };
 }
 
@@ -119,26 +160,26 @@ inline fn small_search(s: const u8[:], a: u8, b: u8, c: u8, count: i64, reverse:
             let v1 = small_test(rest[32..], a, b, c, count, invert);
             let v2 = small_test(rest[64..], a, b, c, count, invert);
             let v3 = small_test(rest[96..], a, b, c, count, invert);
-            if goosimd::mask8(goosimd::bit_or(goosimd::bit_or(v0, v1), goosimd::bit_or(v2, v3))) != 0 {
+            if v0.bit_or(v1).bit_or(v2.bit_or(v3)).to_bits() != 0 {
                 let base = s.len - rest.len;
-                let m0 = goosimd::mask8(v0);
-                let m1 = goosimd::mask8(v1);
-                let m2 = goosimd::mask8(v2);
+                let m0 = v0.to_bits();
+                let m1 = v1.to_bits();
+                let m2 = v2.to_bits();
                 if m0 != 0 { return base + ctz(m0); }
                 if m1 != 0 { return base + 32 + ctz(m1); }
                 if m2 != 0 { return base + 64 + ctz(m2); }
-                return base + 96 + ctz(goosimd::mask8(v3));
+                return base + 96 + ctz(v3.to_bits());
             }
             rest = rest[128..];
         }
         while rest.len >= 32 {
-            let hits = goosimd::mask8(small_test(rest, a, b, c, count, invert));
+            let hits = small_test(rest, a, b, c, count, invert).to_bits();
             if hits != 0 { return s.len - rest.len + ctz(hits); }
             rest = rest[32..];
         }
         // Overlap the last in-bounds block; earlier bytes have already missed.
         if rest.len > 0 && s.len >= 32 {
-            let hits = goosimd::mask8(small_test(s[s.len - 32..], a, b, c, count, invert));
+            let hits = small_test(s[s.len - 32..], a, b, c, count, invert).to_bits();
             return if hits != 0 { s.len - 32 + ctz(hits) } else { -1 };
         }
         for v, i in rest {
@@ -154,25 +195,25 @@ inline fn small_search(s: const u8[:], a: u8, b: u8, c: u8, count: i64, reverse:
         let v1 = small_test(rest[base + 32..], a, b, c, count, invert);
         let v2 = small_test(rest[base + 64..], a, b, c, count, invert);
         let v3 = small_test(rest[base + 96..], a, b, c, count, invert);
-        if goosimd::mask8(goosimd::bit_or(goosimd::bit_or(v0, v1), goosimd::bit_or(v2, v3))) != 0 {
-            let m3 = goosimd::mask8(v3);
-            let m2 = goosimd::mask8(v2);
-            let m1 = goosimd::mask8(v1);
+        if v0.bit_or(v1).bit_or(v2.bit_or(v3)).to_bits() != 0 {
+            let m3 = v3.to_bits();
+            let m2 = v2.to_bits();
+            let m1 = v1.to_bits();
             if m3 != 0 { return base + 96 + 63 - clz(m3); }
             if m2 != 0 { return base + 64 + 63 - clz(m2); }
             if m1 != 0 { return base + 32 + 63 - clz(m1); }
-            return base + 63 - clz(goosimd::mask8(v0));
+            return base + 63 - clz(v0.to_bits());
         }
         rest = rest[..base];
     }
     while rest.len >= 32 {
         let base = rest.len - 32;
-        let hits = goosimd::mask8(small_test(rest[base..], a, b, c, count, invert));
+        let hits = small_test(rest[base..], a, b, c, count, invert).to_bits();
         if hits != 0 { return base + 63 - clz(hits); }
         rest = rest[..base];
     }
     if rest.len > 0 && s.len >= 32 {
-        let hits = goosimd::mask8(small_test(s, a, b, c, count, invert));
+        let hits = small_test(s, a, b, c, count, invert).to_bits();
         return if hits != 0 { 63 - clz(hits) } else { -1 };
     }
     var end = rest.len;
@@ -264,7 +305,7 @@ const BYTE_RANK: u8[256] = [
 struct TwoWay { critical: i64, period: i64, memory: i64, bytes: u64 }
 // Finders borrow their needle. Do not mutate it while the finder is in use.
 struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
-struct FinderReverse { needle: const u8[:], two: TwoWay }
+struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
 
 inline fn suffix(s: const u8[:], maximal: bool, reverse: bool) -> i64, i64 {
     var best = 0;
@@ -303,40 +344,59 @@ inline fn two_way(s: const u8[:], reverse: bool) -> TwoWay {
     }
     if !small { period = max(critical, s.len - critical); }
     var bits: u64 = 0;
-    for byte in s { bits |= (1 as u64) << (byte & 63); }
+    // A periodic needle's first period contains its complete byte alphabet.
+    let rest = if small { s[..period] } else { s };
+    for byte in rest { bits |= (1 as u64) << (byte & 63); }
     return TwoWay { critical: if reverse { s.len - critical } else { critical },
         period: period, memory: if small { s.len - period } else { 0 }, bytes: bits };
 }
 
-fn finder(needle: const u8[:]) -> Finder {
-    var f = Finder { needle: needle, a: 0, b: 0, two: default<TwoWay>() };
-    if needle.len < 2 { return f; }
-    f.b = 1;
-    if BYTE_RANK[needle[f.b]] < BYTE_RANK[needle[f.a]] { f.a = 1; f.b = 0; }
+inline fn rare_pair(needle: const u8[:]) -> i64, i64 {
+    if needle.len < 2 { return 0, 0; }
+    var a = 0;
+    var b = 1;
+    if BYTE_RANK[needle[b]] < BYTE_RANK[needle[a]] { a = 1; b = 0; }
     for i in 2..min(needle.len, 255) {
-        if BYTE_RANK[needle[i]] < BYTE_RANK[needle[f.a]] { f.b = f.a; f.a = i; }
-        else if needle[i] != needle[f.a] && BYTE_RANK[needle[i]] < BYTE_RANK[needle[f.b]] { f.b = i; }
+        if BYTE_RANK[needle[i]] < BYTE_RANK[needle[a]] { b = a; a = i; }
+        else if needle[i] != needle[a] && BYTE_RANK[needle[i]] < BYTE_RANK[needle[b]] { b = i; }
     }
+    return a, b;
+}
+
+fn finder(needle: const u8[:]) -> Finder {
+    let a, b = rare_pair(needle);
+    var f = Finder { needle: needle, a: a, b: b, two: default<TwoWay>() };
     if needle.len > 32 { f.two = two_way(needle, false); }
     return f;
 }
 
 fn finder_reverse(needle: const u8[:]) -> FinderReverse {
-    return FinderReverse { needle: needle, two: two_way(needle, true) };
+    var f = FinderReverse { needle: needle, two: two_way(needle, true), a: 0, b: 0 };
+    if needle.len <= 32 {
+        let a, b = rare_pair(needle);
+        f.a = a;
+        f.b = b;
+    }
+    return f;
 }
 
-// Rabin-Karp is restricted to haystacks shorter than 64 bytes. Its tiny
-// setup cost wins there; the size bound prevents quadratic asymptotics.
-inline fn rabin_karp(s: const u8[:], needle: const u8[:], reverse: bool) -> i64 {
+// Tiny haystacks need no rare-pair preprocessing. Use the first/last bytes
+// for 16..31 SIMD candidates, and Rabin-Karp otherwise.
+// The 64-byte haystack bound prevents quadratic asymptotics.
+inline fn find_small(s: const u8[:], needle: const u8[:], reverse: bool) -> i64 {
     if needle.len > s.len { return -1; }
     if needle.len == 0 { return if reverse { s.len } else { 0 }; }
+    let candidates = s.len - needle.len + 1;
+    if needle.len >= 2 && needle.len <= 32 && candidates >= 16 && candidates < 32 {
+        return packed_small(s, needle, 0, needle.len - 1, reverse);
+    }
     var want: u32 = 0;
     var have: u32 = 0;
-    var power: u32 = 1;
+    // The outgoing byte's weight is 2^(len - 1), modulo 2^32.
+    let power: u32 = if needle.len <= 32 { (1 as u32) << (needle.len - 1) } else { 0 };
     for i in needle.len {
         want = (want << 1) + needle[if reverse { needle.len - 1 - i } else { i }];
         have = (have << 1) + s[if reverse { s.len - 1 - i } else { i }];
-        if i > 0 { power <<= 1; }
     }
     var pos = 0;
     while pos <= s.len - needle.len {
@@ -358,7 +418,7 @@ fn find(f: const Finder&, s: const u8[:]) -> i64 {
     if needle.len == 1 { return byte_search(s, needle[0], false); }
     if needle.len <= 32 {
         let candidates = s.len - needle.len + 1;
-        if candidates >= 16 && candidates < 32 { return packed_small(s, needle, f.a, f.b); }
+        if candidates >= 16 && candidates < 32 { return packed_small(s, needle, f.a, f.b, false); }
         return packed(s, needle, f.a, f.b, false);
     }
     if f.two.memory > 0 { return find_two_way(f, s, true); }
@@ -392,14 +452,23 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
             pos += needle.len; memory = 0; continue;
         }
         var i = if periodic { max(f.two.critical, memory) } else { f.two.critical };
-        while i < needle.len && needle[i] == s[pos + i] { i += 1; }
+        if i < needle.len && needle[i] != s[pos + i] {
+            pos += i - f.two.critical + 1;
+            memory = 0;
+            continue;
+        }
+        let window = s[pos..pos + needle.len];
+        if i < needle.len {
+            i += 1;
+            while i < needle.len && needle[i] == window[i] { i += 1; }
+        }
         if i < needle.len {
             pos += i - f.two.critical + 1;
             memory = 0;
         } else {
             var j = f.two.critical;
             let stop = if periodic { memory } else { 0 };
-            while j > stop && needle[j - 1] == s[pos + j - 1] { j -= 1; }
+            while j > stop && needle[j - 1] == window[j - 1] { j -= 1; }
             if j <= stop { return pos; }
             pos += f.two.period;
             memory = f.two.memory;
@@ -413,30 +482,47 @@ fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64 {
     if needle.len > s.len { return -1; }
     if needle.len == 0 { return s.len; }
     if needle.len == 1 { return byte_search(s, needle[0], true); }
+    if needle.len <= 32 {
+        let candidates = s.len - needle.len + 1;
+        if candidates >= 16 && candidates < 32 { return packed_small(s, needle, f.a, f.b, true); }
+        if candidates >= 32 {
+            let last = s.len - needle.len;
+            if equal_short(s[last..], needle) { return last; }
+            return packed_reverse(s, needle, f.a, f.b);
+        }
+    }
     if f.two.memory > 0 { return rfind_two_way(f, s, true); }
     return rfind_two_way(f, s, false);
 }
 
 inline fn rfind_two_way(f: const FinderReverse&, s: const u8[:], periodic: bool) -> i64 {
     let needle = f.needle;
-    var pos = s.len;
+    var rest = s;
     var memory = needle.len;
-    while pos >= needle.len {
-        let base = pos - needle.len;
-        if f.two.bytes & ((1 as u64) << (s[base] & 63)) == 0 {
-            pos -= needle.len; memory = needle.len; continue;
+    while rest.len >= needle.len {
+        let base = rest.len - needle.len;
+        if f.two.bytes & ((1 as u64) << (rest[base] & 63)) == 0 {
+            rest = rest[..base]; memory = needle.len; continue;
         }
+        let window = rest[base..];
         var i = if periodic { min(f.two.critical, memory) } else { f.two.critical };
-        while i > 0 && needle[i - 1] == s[base + i - 1] { i -= 1; }
+        if i > 0 && needle[i - 1] == window[i - 1] {
+            i -= 1;
+            while i >= 8 {
+                if goosimd::load_u64(needle[i - 8..]) != goosimd::load_u64(window[i - 8..]) { break; }
+                i -= 8;
+            }
+            while i > 0 && needle[i - 1] == window[i - 1] { i -= 1; }
+        }
         if i > 0 {
-            pos -= f.two.critical - i + 1;
+            rest = rest[..rest.len - (f.two.critical - i + 1)];
             memory = needle.len;
         } else {
             var j = f.two.critical;
             let stop = if periodic { memory } else { needle.len };
-            while j < stop && needle[j] == s[base + j] { j += 1; }
+            while j < stop && needle[j] == window[j] { j += 1; }
             if j >= stop { return base; }
-            pos -= f.two.period;
+            rest = rest[..rest.len - f.two.period];
             memory = needle.len - f.two.memory;
         }
     }
@@ -444,15 +530,21 @@ inline fn rfind_two_way(f: const FinderReverse&, s: const u8[:], periodic: bool)
 }
 
 fn find(s: const u8[:], needle: const u8[:]) -> i64 {
-    if s.len < 64 { return rabin_karp(s, needle, false); }
+    if s.len < 64 { return find_small(s, needle, false); }
     if needle.len > s.len { return -1; }
     let f = finder(needle);
     return find(f, s);
 }
 
 fn rfind(s: const u8[:], needle: const u8[:]) -> i64 {
-    if s.len < 64 { return rabin_karp(s, needle, true); }
+    if s.len < 64 { return find_small(s, needle, true); }
     if needle.len > s.len { return -1; }
+    if needle.len >= 2 && needle.len <= 32 {
+        let last = s.len - needle.len;
+        if equal_short(s[last..], needle) { return last; }
+        let a, b = rare_pair(needle);
+        return packed_reverse(s, needle, a, b);
+    }
     let f = finder_reverse(needle);
     return rfind(f, s);
 }

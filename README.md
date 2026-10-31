@@ -10,10 +10,10 @@ supplies header-only load, comparison, and mask primitives. There is no
 separately compiled search kernel or Rust runtime dependency. Rust is used
 only for testing and benchmarking.
 
-This version requires the proposed [`c_headers` compiler change](https://github.com/aardappel/goose/pull/141)
-and the [companion goosimd changes](https://github.com/sstadick/goosimd/pull/1).
-Imports pin that PR's commit, so no sibling goosimd checkout is needed.
-goosimd is a placeholder whose implementation and API will be replaced.
+This version requires Goose's [`c_headers` support](https://github.com/aardappel/goose/pull/141)
+and the [generic goosimd API](https://github.com/sstadick/goosimd/pull/1).
+Imports pin the companion PR's commit, so no sibling checkout is needed.
+goosimd remains experimental, with no stable API or representation guarantee.
 
 **This is a core port, not the complete bstr API or universal performance parity.**
 The supported operations and remaining gaps are listed below.
@@ -25,7 +25,7 @@ that file. Goose requires the root to declare dependencies explicitly:
 
 ```goose
 import goostr from "../goostr";
-import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
+import goosimd from "github.com/sstadick/goosimd@d030164f014e366a05bcd45f508e699edec10b89";
 
 fn main() {
     let bytes = "name=goose\xFF\r\ncount=42\n";
@@ -46,8 +46,8 @@ goose run examples/basic.goose
 The goosimd version is tested on Linux x86-64 (Ryzen 9 3950X) with TinyCC,
 GCC, and Clang, using SSE2, AVX2, and forced scalar builds. TinyCC runs the
 scalar fallback and needs no external C compiler for this package. Native
-builds require a C compiler. The emitted C also passes the search suite on
-Apple ARM64 with NEON; the patched compiler's macOS build/JIT is not tested.
+builds require a C compiler. Earlier bindings passed on Apple ARM64 with
+NEON; this generic-API revision has not been verified on ARM or Windows.
 
 ## Goose API conventions
 
@@ -121,20 +121,26 @@ accepts a predicate block directly.
 
 ### Optimized substring search
 
-- One-shot searches of haystacks shorter than 64 bytes use Rabin–Karp,
-  avoiding finder preprocessing. That size bound limits its worst case.
-- Forward searches for 2–32-byte needles use SIMD packed-pair search, selecting
+- One-shot searches of haystacks shorter than 64 bytes avoid finder
+  preprocessing: 2–32-byte needles with 16–31 candidate positions use narrow
+  SIMD with the needle's first/last bytes; other cases use Rabin–Karp.
+  The size bound limits its worst case.
+- Searches for 2–32-byte needles use SIMD packed-pair search, selecting
   two predictive bytes using memchr's byte-frequency ranks. Candidate matches
   are verified against the entire needle; this is not a probabilistic search.
 - Longer needles use linear-time Two-Way search, critical factorization,
-  an approximate byte set, and a SIMD prefilter that disables itself when
+  an approximate byte set, and a forward SIMD prefilter that disables itself when
   ineffective. Periodic and nonperiodic search loops are specialized.
-- Reverse substring search uses reverse Two-Way, matching memchr's design.
+- Reverse SIMD searches inspect the highest candidate bits first. Prepared
+  reverse searches with fewer than 16 candidate positions use Two-Way instead.
   Single-byte searches in either direction use unrolled SIMD scans.
-- goosimd selects SIMD at compile time: SSE2 by default on x86-64, AVX2 with
-  `-mavx2`, NEON on ARM64, and scalar fallback elsewhere and under TinyCC.
-  Unlike the former C kernels, this version has **no runtime AVX2 dispatch**.
-  An AVX2 build requires an AVX2 CPU. Logical blocks contain 16 or 32 bytes; vector
+- Searches use goosimd's `Vec<u8[16]>`/`Vec<u8[32]>` loads, byte comparisons,
+  and typed masks. The generic wrappers inline across the package boundary.
+  These scan functions select SIMD at compile time: SSE2 by default on x86-64,
+  AVX2 with `-mavx2`, NEON on ARM64, and scalar fallback under TinyCC.
+  goosimd supports runtime selection inside `simd fn`, but goostr retains
+  **compile-time dispatch**. An AVX2 build requires an AVX2 CPU.
+  Logical blocks contain 16 or 32 bytes; vector
   loads stay within the input and only test valid substring start positions.
   Wasm SIMD is not implemented.
 
@@ -176,7 +182,7 @@ remain scalar. UTF-8 optimization is outside this search work.
 
 ## Tests
 
-Use the patched Goose compiler. Native tests also require its C toolchain:
+Use a Goose compiler with `c_headers` support. Native tests also require its C toolchain:
 
 ```sh
 goose run tests/test.goose --debug
@@ -188,7 +194,7 @@ goose build tests/search.goose -O2
 ./tests/search
 ```
 
-The search suite checks 40,929 haystack/needle pairs against an independent
+The search suite checks 44,624 haystack/needle pairs against an independent
 naive oracle, including exhaustive short binary inputs, aligned and unaligned
 hits at SIMD/dispatch boundaries, periodic patterns, ineffective prefilters,
 and seeded random inputs. It checks one-shot searches, reused finders,
@@ -196,14 +202,12 @@ non-overlapping iterators, and all four byte-set operations. Another 21,240
 byte-set cases cover every position around vector/unroll boundaries, empty
 and full sets, duplicates, NUL, and high-bit bytes.
 
-The current search suite passes with TinyCC at `-O0` and `-O2`, and native
-GCC/Clang SSE2, AVX2, and scalar builds. Each native x86 variant also passed
-8,840 guard-page cases with inputs abutting inaccessible pages at either end.
-Clang ASan/UBSan runs passed the search and guard-page suites on x86 AVX2.
-Apple Clang passed the search suite with NEON, both normally and under
-ASan/UBSan, along with the guard-page checks, using Linux-emitted C with
-only the header include path changed.
-Earlier QEMU results applied to the former C kernels, not this migration.
+The generic-API revision passes the search suite with TinyCC, GCC and Clang
+baseline and AVX2, forced scalar adapters, and Clang ASan/UBSan.
+All those native variants also passed 37,740 guard-page cases with haystacks
+and needles abutting inaccessible pages at either end.
+Earlier Apple ARM64 results used the previous bindings;
+earlier QEMU results used the former C kernels, not this migration.
 
 Differential testing additionally requires Cargo, Python 3, and a C compiler
 usable by `goose build`. Cargo downloads the pinned Rust test dependencies
@@ -267,9 +271,44 @@ The script uses a fresh `GOOSE_HOME` for each build. Goose runtime
 release builds, which can silently benchmark unoptimized kernels. Use
 separate `GOOSE_HOME` directories for your own debug/release builds too.
 
-## Current goosimd results
+## Generic API integration results
 
-Measured on Marvin's Ryzen 9 3950X with GCC 13.3.0 `-O2 -mavx2`, the patched
+Compared with the previous concrete goosimd API on Marvin (Ryzen 9 3950X),
+using GCC 13.3 and Clang 18.1 at `-O2 -mavx2`, CPU-2 affinity,
+alternating implementations, and five samples per workload:
+
+| Operation | Previous API | Generic API |
+| --- | ---: | ---: |
+| GCC AVX2, prepared tiny hit | 6.41 ns | 5.93 ns |
+| GCC AVX2, prepared tiny miss | 5.11 ns | 4.75 ns |
+| GCC AVX2, prepared 1 MiB text miss | 20.02 µs | 14.46 µs |
+| GCC AVX2, prepared reverse 1 MiB text miss | 183.72 µs | 23.84 µs |
+| GCC AVX2, prepared reverse 2048-byte needle | 990.00 ns | 159.23 ns |
+| Clang AVX2, prepared tiny hit | 5.21 ns | 4.52 ns |
+| Clang AVX2, prepared tiny miss | 3.80 ns | 3.57 ns |
+
+The generic wrappers inline across package boundaries. Matching GCC's
+baseline loads and operations at 16 bytes removes redundant aggregate
+copies. GCC broadcasts use a scalar operand rather than constructing a
+vector lane by lane, avoiding a stack temporary on short searches.
+
+Scanning two blocks together fixes the earlier GCC AVX2 bulk-miss regression.
+Reverse searches now use SIMD for short needles and word comparisons inside
+Two-Way for long needles. Reusing offset slices avoids repeated bounds and
+address calculations in the narrow path. GCC baseline tiny prepared hit/miss
+probes measured 6.30/4.99 ns versus 6.89/5.47 ns with the concrete API.
+
+This is not an across-the-board speedup: some Clang byte-set early exits
+remain about 0.5–1.2 ns slower (roughly 8–16%). Earlier Clang bulk timings
+varied substantially, so the table emphasizes its short-input results.
+The final full comparison covered GCC AVX2 substring searches and both
+Clang AVX2 suites; the final GCC baseline check was a targeted tiny-input
+probe, not another full matrix. ARM and Windows performance is unverified.
+
+## Earlier goosimd tuning results
+
+These measurements predate the generic-API integration. Measured on Marvin's
+Ryzen 9 3950X with GCC 13.3.0 `-O2 -mavx2`, the patched
 Goose compiler (runtime `f2981814a754`), and bstr 1.13.1. Before/after binaries
 and bstr ran in alternating order, pinned to CPU 2, with five samples per
 workload. Both goostr versions used the same compiler and global flags.
@@ -299,7 +338,8 @@ and 6.47 ns for the four-byte-set first hit. The large regressions are gone,
 but **performance parity is not universal**: some early exits still cost
 roughly an extra nanosecond. Text/binary misses increased about 2% versus the
 untuned migration, and the two-byte substring miss about 6%; the latter
-remains slower than bstr. Reverse substring search remains scalar Two-Way.
+remained slower than bstr. Reverse substring search was still scalar Two-Way
+at this stage; the generic-API revision above adds reverse SIMD search.
 
 GCC reports optimization-attribute mismatch warnings at scalar extern
 redeclarations in generated C. The builds and checks pass without suppressing

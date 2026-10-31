@@ -1,5 +1,5 @@
 import goostr from "..";
-import goosimd from "github.com/sstadick/goosimd@a619a2e1d6c194be4555b01beb63ef2042131ad3";
+import goosimd from "github.com/sstadick/goosimd@d030164f014e366a05bcd45f508e699edec10b89";
 
 // Independent membership oracle: no ByteSet or SIMD helpers from the library.
 fn check_set(h: const u8[:], n: const u8[:]) {
@@ -78,10 +78,10 @@ fn main() {
     }
     // SIMD widths, short/long needle threshold, tiny-haystack threshold, and
     // pair-selection cutoff; hits at every byte offset and at the final byte.
-    for nlen in [1, 2, 3, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 255, 256, 257, 513] {
+    for nlen in [1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 255, 256, 257, 513] {
         var n: u8[>..] = [];
         for i in nlen { n.push((i % 7) as u8); }
-        for offset in 0..80 {
+        for offset in 0..160 {
             var h: u8[>..] = [];
             h.resize(offset, 255);
             h.append(n);
@@ -89,6 +89,24 @@ fn main() {
             h.push(255);
             check(h, n);
             count += 2;
+        }
+    }
+    // Multiple SIMD candidates, including a false candidate after the last
+    // full match. Changing each byte leaves some pair-filter hits intact.
+    for len in [31, 35, 160] {
+        var candidates: u8[>..] = [];
+        candidates.resize(len, 255);
+        let pattern = "abcd";
+        for at in [0, 7, len / 2, len - pattern.len] {
+            for i in pattern.len { candidates[at + i] = pattern[i]; }
+        }
+        check(candidates, pattern);
+        count += 1;
+        for i in pattern.len {
+            candidates[len - pattern.len + i] ^= 128;
+            check(candidates, pattern);
+            candidates[len - pattern.len + i] ^= 128;
+            count += 1;
         }
     }
     // Defeat the rare-pair prefilter (the distinct byte lies after offset
