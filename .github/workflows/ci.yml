@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out Goose
+        uses: actions/checkout@v4
+        with:
+          repository: aardappel/goose
+          # Includes package c_headers support; v2026.3 predates it.
+          ref: b46099024b9af8a9f54cd76e24953a89c21ccb3a
+          path: .ci/goose
+          persist-credentials: false
+      - name: Build Goose
+        run: |
+          cmake -S .ci/goose -B .ci/goose/build -DCMAKE_BUILD_TYPE=Debug -DGOOSE_BUILTIN_LIBS=
+          cmake --build .ci/goose/build --parallel 2
+          echo "$GITHUB_WORKSPACE/.ci/goose/build" >> "$GITHUB_PATH"
+          echo "GOOSE_HOME=$RUNNER_TEMP/goostr-home" >> "$GITHUB_ENV"
+      - name: TinyCC tests
+        run: |
+          for level in 0 2; do
+            goose run tests/test.goose --debug "-O$level"
+            goose run tests/search.goose --debug "-O$level"
+          done
+      - name: GCC and Clang tests
+        run: |
+          for cc in gcc clang; do
+            for suite in test search; do
+              goose build "tests/$suite.goose" --cc "$cc" --debug -O2 -o "$RUNNER_TEMP/$suite-$cc"
+              "$RUNNER_TEMP/$suite-$cc"
+            done
+          done
+      - name: Scalar and AVX2 search tests
+        run: |
+          goose --standalone -o "$RUNNER_TEMP/search.c" tests/search.goose
+          for cc in gcc clang; do
+            "$cc" -O2 -DGOOSIMD_SCALAR "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-scalar" -lm -pthread -ldl
+            "$RUNNER_TEMP/search-scalar"
+            if grep -qw avx2 /proc/cpuinfo; then
+              "$cc" -O2 -mavx2 "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-avx2" -lm -pthread -ldl
+              "$RUNNER_TEMP/search-avx2"
+            else
+              echo "AVX2 tests skipped: runner CPU does not support AVX2"
+            fi
+          done
+      - name: Compare with bstr
+        run: python3 tests/differential.py
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected vMAJOR.MINOR.PATCH"; exit 1; }
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --generate-notes
+          fi

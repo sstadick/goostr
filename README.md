@@ -18,6 +18,13 @@ goosimd remains experimental, with no stable API or representation guarantee.
 **This is a core port, not the complete bstr API or universal performance parity.**
 The supported operations and remaining gaps are listed below.
 
+## Releases
+
+Current version: [v0.1.0](https://github.com/sstadick/goostr/releases/tag/v0.1.0).
+Versions are Git tags (`vMAJOR.MINOR.PATCH`). Pushing a version tag runs CI
+and publishes a GitHub source release only after tests pass. CI also runs
+on branch pushes and pull requests. The examples below track `main`.
+
 ## Use it in a Goose project
 
 Save this as `main.goose` in your project. Goose fetches both packages from
