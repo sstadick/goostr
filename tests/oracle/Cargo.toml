@@ -1,0 +1,16 @@
+[package]
+name = "goostr-oracle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bstr = "=1.13.1"
+
+[features]
+bench = []
+
+[[bin]]
+name = "search-bench"
+path = "src/bin/search-bench.rs"
+required-features = ["bench"]
