@@ -2,7 +2,7 @@
 // Copyright (c) 2015 Andrew Gallant. MIT; see LICENSE.
 namespace goostr;
 import std;
-import goosimd from "github.com/sstadick/goosimd@d030164f014e366a05bcd45f508e699edec10b89";
+import goosimd from "github.com/sstadick/goosimd@main";
 
 // Bounded, overlapping loads verify 2..32 bytes without a memcmp call in
 // the candidate loop. All loads stay within both slices.

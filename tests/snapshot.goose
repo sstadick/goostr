@@ -1,6 +1,6 @@
 // Differential-test driver. Input: hex haystack|hex needle|split limit.
 import goostr from "..";
-import goosimd from "github.com/sstadick/goosimd@d030164f014e366a05bcd45f508e699edec10b89";
+import goosimd from "github.com/sstadick/goosimd@main";
 import os;
 
 fn unhex(s: const u8[:]) -> u8[>..] {

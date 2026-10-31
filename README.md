@@ -11,21 +11,21 @@ separately compiled search kernel or Rust runtime dependency. Rust is used
 only for testing and benchmarking.
 
 This version requires Goose's [`c_headers` support](https://github.com/aardappel/goose/pull/141)
-and the [generic goosimd API](https://github.com/sstadick/goosimd/pull/1).
-Imports pin the companion PR's commit, so no sibling checkout is needed.
+and the [generic goosimd API](https://github.com/sstadick/goosimd).
+Imports use goosimd's `main` branch, so no sibling checkout is needed.
 goosimd remains experimental, with no stable API or representation guarantee.
 
 **This is a core port, not the complete bstr API or universal performance parity.**
 The supported operations and remaining gaps are listed below.
 
-## Use it
+## Use it in a Goose project
 
-Declare both packages in your program's root file. Paths are relative to
-that file. Goose requires the root to declare dependencies explicitly:
+Save this as `main.goose` in your project. Goose fetches both packages from
+GitHub. The root file must declare goosimd explicitly as well as goostr:
 
 ```goose
-import goostr from "../goostr";
-import goosimd from "github.com/sstadick/goosimd@d030164f014e366a05bcd45f508e699edec10b89";
+import goostr from "github.com/sstadick/goostr@main";
+import goosimd from "github.com/sstadick/goosimd@main";
 
 fn main() {
     let bytes = "name=goose\xFF\r\ncount=42\n";
@@ -37,11 +37,16 @@ fn main() {
 }
 ```
 
-From this directory, run the included example:
+Run it or build an executable:
 
 ```sh
-goose run examples/basic.goose
+goose run main.goose
+goose build main.goose -O2 -o demo
 ```
+
+No local checkout or consumer `--include` flag is needed. `@main` follows
+the development branches; use commits for reproducible dependencies.
+From a goostr checkout, you can also run `goose run examples/basic.goose`.
 
 The goosimd version is tested on Linux x86-64 (Ryzen 9 3950X) with TinyCC,
 GCC, and Clang, using SSE2, AVX2, and forced scalar builds. TinyCC runs the
