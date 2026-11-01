@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: aardappel/goose
-          # Includes package c_headers support; v2026.3 predates it.
+          # Compiler revision used for package c_headers and SIMD tests.
           ref: b46099024b9af8a9f54cd76e24953a89c21ccb3a
           path: .ci/goose
           persist-credentials: false

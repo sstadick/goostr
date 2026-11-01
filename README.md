@@ -50,6 +50,7 @@ assert(goostr::find("café menu", "menu") == 6);
 assert(goostr::rfind("ababa", "aba") == 2);
 assert(goostr::find_byteset("name=value;", "=;") == 4);
 assert(goostr::find("goose", "duck") == -1);
+assert(goostr::find_char("café", 0xE9) == 3); // Unicode scalar, byte offset.
 
 // Reuse a finder when searching for the same pattern in several inputs.
 let f = goostr::finder("error");
@@ -97,6 +98,20 @@ let end, error = goostr::validate_utf8("ok\xE2\x82");
 assert(end == 2 && error == -1); // Incomplete UTF-8 after "ok".
 ```
 
+For a printable representation that preserves arbitrary bytes, use
+`escape_bytes`. Decode it with `unescape_bytes`:
+
+```goose
+let bytes = "line\n\xFF";
+let escaped = goostr::escape_bytes(bytes);
+assert(escaped == "line\\n\\xFF");
+assert(goostr::unescape_bytes(escaped) == bytes);
+assert(goostr::unescape_bytes("\\q") == "\\q"); // Unknown escapes stay literal.
+```
+
+`unescape_bytes` recognizes `\0`, `\n`, `\r`, `\t`, `\\`, and `\xHH`.
+It does not decode Unicode escapes such as `\u{1234}`.
+
 ## Choose an operation
 
 | Task | Start with |
@@ -138,6 +153,46 @@ Goose's runtime AVX2 selection also requires FMA, BMI1/2, LZCNT, POPCNT, and
 OS support. Compiling emitted C with `-DGS_SIMD=0` disables runtime selection;
 adding `-mavx2` selects AVX2 at compile time and requires an AVX2 CPU.
 
+## Search performance
+
+These warm-cache microbenchmarks compare goostr
+[`e2774d7`](https://github.com/sstadick/goostr/commit/e2774d73d76cc61e96207c188a840b9226d42b0f)
+with bstr 1.13.1 (memchr 2.8.3) on a Ryzen 9 3950X, Linux x86-64.
+Goostr uses Goose `b4609902` and Clang 18.1.3; bstr uses Rust 1.97.1.
+Both use optimization level 2 and runtime SIMD selection, with AVX2 available.
+
+Times are medians of nine measured batches, calibrated to at least 50 ms,
+pinned to CPU 4. Both runners use identical inputs and the same opaque C
+barrier, warm up before timing, rotate execution order, and check results.
+File I/O and process startup are excluded. Prepared searches exclude finder
+construction on both sides; ordinary substring searches include it.
+
+**Ratio = goostr / bstr; lower is better for goostr.** This selection includes
+wins and losses from 296 case/operation comparisons, not an overall score.
+
+| Input / scenario | Operation | goostr | bstr | Ratio |
+| --- | --- | ---: | ---: | ---: |
+| 23 B, substring hit | `find` | 5.6 ns | 35.8 ns | 0.15× |
+| Same, reusable finder | prepared `find` | 5.1 ns | 8.3 ns | 0.61× |
+| 63 B, one-byte miss | `rfind` | 88.1 ns | 18.8 ns | 4.70× |
+| 64 B, three-byte miss | prepared `find` | 19.3 ns | 7.8 ns | 2.48× |
+| 1 MiB text, substring miss | `find` | 16.45 µs | 15.94 µs | 1.03× |
+| Same, searching backward | `rfind` | 23.38 µs | 146.25 µs | 0.16× |
+| 1 MiB random bytes, substring miss | `find` | 16.69 µs | 23.18 µs | 0.72× |
+| 1 MiB, one-byte miss | `find` | 10.92 µs | 10.69 µs | 1.02× |
+| 1 MiB + 33 B, 33-byte needle at end | `rfind` | 160.2 ns | 110.4 ns | 1.45× |
+| 1 MiB repetitive data, 256-byte needle miss | `find` | 1,217 µs | 1,700 µs | 0.72× |
+| 1 MiB, two-byte set miss | `find_byteset` | 14.36 µs | 13.38 µs | 1.07× |
+| 1 MiB, three-byte set miss | `find_byteset` | 17.65 µs | 16.50 µs | 1.07× |
+| 1 MiB, four-byte set miss | `find_byteset` | 369.81 µs | 541.03 µs | 0.68× |
+| 768 KiB, all bytes in a three-byte set | `find_not_byteset` | 13.29 µs | 410.40 µs | 0.03× |
+
+Compiler settings matter. In 19 additional controls using Rust's default
+release optimization level 3, the text-miss comparison was 17.23 µs versus
+25.22 µs. The small reverse-search loss and two-/three-byte-set gaps remained.
+These results do not predict cold-cache, other-platform, or whole-library
+performance. See the benchmark commands below to measure your workload.
+
 ## Contributing
 
 Run the library tests from this checkout:
@@ -163,6 +218,18 @@ cases, or `--baseline-exe` to compare with a previously built version. Timings
 exclude file I/O, include a warm-up pass, and retain individual samples and
 compiler/CPU details in JSON. Pin the benchmark to one CPU where possible;
 run compiler/target comparisons sequentially. See `--help` for other options.
+
+For the table's matched-O2 configuration on Linux, use:
+
+```sh
+CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
+  --cc clang --target runtime --suite substring --samples 9 --sample-ms 50 \
+  --output substring-o2.json
+```
+
+Repeat with `--suite byteset` or `--suite boundary` for those operations.
+Choose an available CPU on your machine. Without the environment variable,
+Cargo uses release optimization level 3; the Goose C build still uses `-O2`.
 
 API documentation comes from source comments. With
 [goosdoc v0.2.0](https://github.com/sstadick/goosdoc/releases/tag/v0.2.0)
