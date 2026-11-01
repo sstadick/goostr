@@ -4,6 +4,10 @@ namespace goostr;
 import std;
 import goosimd from "github.com/sstadick/goosimd@main";
 
+extern fn runtime_simd() -> bool = "goostr_runtime_simd";
+// Amortize dispatch on longer scans; keep smaller inputs fully inlineable.
+const DISPATCH_MIN: i64 = 1024;
+
 // Bounded, overlapping loads verify 2..32 bytes without a memcmp call in
 // the candidate loop. All loads stay within both slices.
 inline fn equal_short(s: const u8[:], needle: const u8[:]) -> bool {
@@ -26,7 +30,32 @@ inline fn equal_short(s: const u8[:], needle: const u8[:]) -> bool {
         (goosimd::load_u16(s[n - 2..]) ^ goosimd::load_u16(needle[n - 2..]))) == 0;
 }
 
+// Resolve early hits without runtime dispatch. The rest of a long scan gets
+// its own target-specific loop, including candidate verification.
 fn packed(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) -> i64 {
+    if !runtime_simd() { return packed_scan(s, needle, a, b, prefilter); }
+    if needle.len > s.len || needle.len < 2 { return -1; }
+    let count = s.len - needle.len + 1;
+    if count < DISPATCH_MIN { return packed_scan(s, needle, a, b, prefilter); }
+    let x = needle[a];
+    let y = needle[b];
+    let vx = goosimd::load<goosimd::U8x32>(s[a..]).eq(x);
+    let vy = goosimd::load<goosimd::U8x32>(s[b..]).eq(y);
+    var hits = vx.bit_and(vy).to_bits();
+    while hits != 0 {
+        let at = ctz(hits);
+        if prefilter || equal_short(s[at..], needle) { return at; }
+        hits &= hits - 1;
+    }
+    let at = packed_wide(s[32..], needle, a, b, prefilter);
+    return if at < 0 { -1 } else { 32 + at };
+}
+
+simd fn packed_wide(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) -> i64 {
+    return packed_scan(s, needle, a, b, prefilter);
+}
+
+inline fn packed_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) -> i64 {
     if needle.len > s.len || needle.len < 2 { return -1; }
     let x = needle[a];
     let y = needle[b];
@@ -70,6 +99,15 @@ fn packed(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefilter: bool) 
 }
 
 fn packed_reverse(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
+    if !runtime_simd() || s.len - needle.len + 1 < DISPATCH_MIN { return packed_reverse_scan(s, needle, a, b); }
+    return packed_reverse_wide(s, needle, a, b);
+}
+
+simd fn packed_reverse_wide(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
+    return packed_reverse_scan(s, needle, a, b);
+}
+
+inline fn packed_reverse_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
     if needle.len > s.len || needle.len < 2 { return -1; }
     let x = needle[a];
     let y = needle[b];
@@ -138,9 +176,26 @@ inline fn small_mask16(s: const u8[:], a: u8, b: u8, c: u8, count: i64, invert: 
     return if invert { mask ^ 0xFFFF } else { mask };
 }
 
+inline fn small_search(s: const u8[:], a: u8, b: u8, c: u8, count: i64, reverse: bool, invert: bool) -> i64 {
+    if !runtime_simd() || s.len < DISPATCH_MIN { return small_search_base(s, a, b, c, count, reverse, invert); }
+    // An immediate match should not pay for dispatch or a four-block scan.
+    let edge = if reverse { s[s.len - 16..] } else { s };
+    let hits = small_mask16(edge, a, b, c, count, invert);
+    if hits != 0 { return if reverse { s.len - 16 + 63 - clz(hits) } else { ctz(hits) }; }
+    if count == 1 { return small_search_wide(s, [a], reverse, invert); }
+    if count == 2 { return small_search_wide(s, [a, b], reverse, invert); }
+    return small_search_wide(s, [a, b, c], reverse, invert);
+}
+
+// The fixed array keeps the comparison count constant in each SIMD version.
+simd fn small_search_wide<Set>(s: const u8[:], set: Set, reverse: bool, invert: bool) -> i64 {
+    return small_search_base(s, set[0], set[if set.len >= 2 { 1 } else { 0 }],
+        set[set.len - 1], set.len, reverse, invert);
+}
+
 // Count and inversion are constants at the call sites. Misses test four
 // blocks together; a hit resolves the first/last matching lane in order.
-inline fn small_search(s: const u8[:], a: u8, b: u8, c: u8, count: i64, reverse: bool, invert: bool) -> i64 {
+inline fn small_search_base(s: const u8[:], a: u8, b: u8, c: u8, count: i64, reverse: bool, invert: bool) -> i64 {
     if s.len < 32 && s.len >= 16 {
         if !reverse {
             let first = small_mask16(s, a, b, c, count, invert);

@@ -31,6 +31,11 @@ fn snapshot(s: const u8[:], needle: const u8[:], n: i64) {
     format(out, cp, ",", size, ",", valid, ",", rcp, ",", rsize, ",", rvalid, ",", end, ",", error, "|");
     hex(out, goostr::to_str_lossy(s));
     hex(out, goostr::escape_bytes(s));
+    hex(out, goostr::unescape_bytes(goostr::escape_bytes(s)));
+    hex(out, goostr::unescape_bytes(goostr::to_str_lossy(s)));
+    let ch, chsize = goostr::decode_utf8_lossy(needle);
+    let scalar = if chsize == 0 { 0 } else { ch };
+    format(out, goostr::find_char(s, scalar), ",", goostr::rfind_char(s, scalar), "|");
     hex(out, goostr::trim(s));
     hex(out, goostr::trim_start(s));
     hex(out, goostr::trim_end(s));

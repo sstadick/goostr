@@ -10,6 +10,8 @@ goostr::starts_with_str
 goostr::ends_with_str
 goostr::find_byte
 goostr::rfind_byte
+goostr::find_char
+goostr::rfind_char
 goostr::find_byteset
 goostr::rfind_byteset
 goostr::find_not_byteset
@@ -58,3 +60,4 @@ goostr::make_ascii_uppercase
 goostr::reverse_bytes
 goostr::reverse_chars
 goostr::escape_bytes
+goostr::unescape_bytes

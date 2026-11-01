@@ -103,12 +103,14 @@ assert(end == 2 && error == -1); // Incomplete UTF-8 after "ok".
 | --- | --- |
 | Search forward or backward | `find`, `rfind`, `finder`, `finder_reverse` |
 | Search for individual bytes or a set | `find_byte`, `find_byteset`, `find_not_byteset` and their reverse variants |
+| Search for a Unicode codepoint | `find_char`, `rfind_char` (return byte offsets) |
 | Iterate matches or split input | `find_iter`, `split_str`, `splitn_str`, `split_once_str` |
 | Replace or repeat bytes | `replace`, `replacen`, `replace_into`, `repeatn` |
 | Read lines or words | `lines`, `lines_with_terminator`, `fields` |
 | Trim text | `trim`, `trim_start`, `trim_end`, `trim_with` |
 | Decode or validate UTF-8 | `chars`, `char_indices`, `utf8_chunks`, `validate_utf8`, `to_str_lossy` |
 | Change or inspect bytes | `is_ascii`, `to_ascii_lowercase`, `reverse_bytes`, `reverse_chars`, `escape_bytes` |
+| Decode escaped bytes | `unescape_bytes` |
 
 See the [API reference](API.md) for all signatures and examples. A few rules
 are worth knowing before choosing an operation:
@@ -123,8 +125,18 @@ are worth knowing before choosing an operation:
   mapping and grapheme/word/sentence segmentation are not provided.
 
 This is not the complete bstr API, and performance parity is not guaranteed.
-For optimized native searches, build with GCC or Clang. TinyCC uses scalar
-code; AVX2-only builds require an AVX2 CPU. goostr does not select AVX2 at runtime.
+For optimized native searches, build with GCC or Clang. Clang on x86-64
+selects supported SIMD instructions at runtime for long scans; short searches
+and early matches avoid dispatch. GCC uses the build target, and TinyCC uses
+scalar code. To enable runtime selection:
+
+```sh
+goose build main.goose --cc clang -O2 -o demo
+```
+
+Goose's runtime AVX2 selection also requires FMA, BMI1/2, LZCNT, POPCNT, and
+OS support. Compiling emitted C with `-DGS_SIMD=0` disables runtime selection;
+adding `-mavx2` selects AVX2 at compile time and requires an AVX2 CPU.
 
 ## Contributing
 
@@ -137,8 +149,20 @@ python3 tests/differential.py
 ```
 
 The bstr comparison requires Python 3, Cargo, and a native C compiler.
-To run search benchmarks against bstr, start with
-`python3 bench/compare.py --help`.
+Compare search performance against bstr with the same inputs and checked results:
+
+```sh
+python3 bench/compare.py --cc clang --target runtime --suite substring --output substring.json
+python3 bench/compare.py --cc clang --target runtime --suite byteset --output byteset.json
+python3 bench/compare.py --cc gcc --target baseline --suite boundary --output boundary.json
+```
+
+The boundary suite covers lengths around scalar/SIMD and search-algorithm
+cutoffs. Use `--target avx2` only on a capable CPU, `--case 'tiny-*'` to select
+cases, or `--baseline-exe` to compare with a previously built version. Timings
+exclude file I/O, include a warm-up pass, and retain individual samples and
+compiler/CPU details in JSON. Pin the benchmark to one CPU where possible;
+run compiler/target comparisons sequentially. See `--help` for other options.
 
 API documentation comes from source comments. With
 [goosdoc v0.2.0](https://github.com/sstadick/goosdoc/releases/tag/v0.2.0)

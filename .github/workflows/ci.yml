@@ -75,19 +75,23 @@ jobs:
               "$RUNNER_TEMP/$suite-$cc"
             done
           done
-      - name: Scalar and AVX2 search tests
+      - name: Baseline, scalar, and AVX2 search tests
         run: |
           goose --standalone -o "$RUNNER_TEMP/search.c" tests/search.goose
           for cc in gcc clang; do
-            "$cc" -O2 -DGOOSIMD_SCALAR "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-scalar" -lm -pthread -ldl
+            "$cc" -O2 -DGS_SIMD=0 "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-baseline" -lm -pthread -ldl
+            "$RUNNER_TEMP/search-baseline"
+            "$cc" -O2 -DGS_SIMD=0 -DGOOSIMD_SCALAR "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-scalar" -lm -pthread -ldl
             "$RUNNER_TEMP/search-scalar"
             if grep -qw avx2 /proc/cpuinfo; then
-              "$cc" -O2 -mavx2 "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-avx2" -lm -pthread -ldl
+              "$cc" -O2 -DGS_SIMD=0 -mavx2 "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-avx2" -lm -pthread -ldl
               "$RUNNER_TEMP/search-avx2"
             else
               echo "AVX2 tests skipped: runner CPU does not support AVX2"
             fi
           done
+          clang -O2 -DGS_SIMD=1 "$RUNNER_TEMP/search.c" -o "$RUNNER_TEMP/search-dispatch" -lm -pthread -ldl
+          "$RUNNER_TEMP/search-dispatch"
       - name: Compare with bstr
         run: python3 tests/differential.py
 

@@ -1,1 +1,2 @@
 exclude = ["tests", "bench", ".amp"];
+c_headers = ["src/dispatch.h"];

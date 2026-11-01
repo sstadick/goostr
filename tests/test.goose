@@ -25,6 +25,21 @@ fn search() {
     assert(goostr::rfind_byte("\0x\0", 0) == 2);
     assert(goostr::find_byte("", 0) == -1);
     assert(goostr::rfind_byte("abc", 0) == -1);
+    let points = [0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10FFFF];
+    let encoded = ["\0", "\x7F", "\xC2\x80", "\xDF\xBF", "\xE0\xA0\x80",
+        "\xED\x9F\xBF", "\xEE\x80\x80", "\xEF\xBF\xBF", "\xF0\x90\x80\x80", "\xF4\x8F\xBF\xBF"];
+    for cp, i in points {
+        var s: u8[>..] = [];
+        s.append("!\xFF"); s.append(encoded[i]); s.append("??"); s.append(encoded[i]);
+        assert(goostr::find_char(s, cp) == 2);
+        assert(goostr::rfind_char(s, cp) == 4 + encoded[i].len);
+        assert(goostr::find_char("", cp) == -1);
+        assert(goostr::rfind_char("", cp) == -1);
+    }
+    assert(goostr::find_char("\xFF�\xFE�", 0xFFFD) == 1);
+    assert(goostr::rfind_char("\xFF�\xFE�", 0xFFFD) == 5);
+    assert(goostr::find_char("\xFF", 0xFFFD) == -1);
+    assert(goostr::rfind_char("\xFF", 0xFFFD) == -1);
     assert(goostr::find_byteset("abc\xFFx", "x\xFF") == 3);
     assert(goostr::rfind_byteset("abc\xFFx", "x\xFF") == 4);
     assert(goostr::find_not_byteset("aaab", "a") == 3);
@@ -156,6 +171,18 @@ fn text() {
     goostr::reverse_bytes(mutable);
     assert(mutable == "\xFFza");
     assert(goostr::escape_bytes(" é\xFF\0\t\r\n\\\"\x7F") == "\\x20é\\xFF\\0\\t\\r\\n\\\\\"\\x7F");
+    assert(goostr::unescape_bytes("\\0\\n\\r\\t\\\\\\x00\\x9F\\xaB") == "\0\n\r\t\\\0\x9F\xAB");
+    for s in ["", "\\", "\\x", "\\xA", "\\xZ", "\\xZZ", "\\q", "\\u{2603}", "café\xFF"] {
+        assert(goostr::unescape_bytes(s) == s);
+    }
+    // A backslash consumed by a malformed hex escape must not start another escape.
+    assert(goostr::unescape_bytes("\\x\\n") == "\\x\\n");
+    assert(goostr::unescape_bytes("\\xA\\n") == "\\xA\\n");
+    assert(goostr::unescape_bytes("\\xZ\\n") == "\\xZ\n");
+    assert(goostr::unescape_bytes("\\xé\\n") == "\\xé\n");
+    var all: u8[256] = [0; 256];
+    for i in 256 { all[i] = i as u8; }
+    assert(goostr::unescape_bytes(goostr::escape_bytes(all)) == all);
 }
 
 fn utf8() {

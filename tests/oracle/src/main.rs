@@ -1,4 +1,4 @@
-use bstr::{decode_last_utf8, decode_utf8, ByteSlice};
+use bstr::{decode_last_utf8, decode_utf8, ByteSlice, ByteVec};
 use std::fmt::Write;
 use std::io::{self, BufRead, BufWriter, Write as IoWrite};
 
@@ -37,6 +37,21 @@ fn snapshot(s: &[u8], needle: &[u8], n: usize) -> String {
     .unwrap();
     hex(&mut out, s.to_str_lossy().as_bytes());
     hex(&mut out, s.escape_bytes().to_string().as_bytes());
+    hex(&mut out, &Vec::unescape_bytes(s.escape_bytes().to_string()));
+    hex(&mut out, &Vec::unescape_bytes(s.to_str_lossy()));
+    let (ch, size) = decode_utf8(needle);
+    let scalar = if size == 0 {
+        '\0'
+    } else {
+        ch.unwrap_or('\u{FFFD}')
+    };
+    write!(
+        out,
+        "{},{}|",
+        pos(s.find_char(scalar)),
+        pos(s.rfind_char(scalar))
+    )
+    .unwrap();
     hex(&mut out, s.trim());
     hex(&mut out, s.trim_start());
     hex(&mut out, s.trim_end());

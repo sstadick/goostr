@@ -15,60 +15,63 @@
 - [`goostr::ends_with_str`](#api-11)
 - [`goostr::find_byte`](#api-12)
 - [`goostr::rfind_byte`](#api-13)
-- [`goostr::find_byteset`](#api-14)
-- [`goostr::find_not_byteset`](#api-15)
-- [`goostr::rfind_byteset`](#api-16)
-- [`goostr::rfind_not_byteset`](#api-17)
-- [`goostr::find_iter`](#api-18)
-- [`goostr::rfind_iter`](#api-19)
-- [`goostr::splitn_str`](#api-20)
-- [`goostr::split_str`](#api-21)
-- [`goostr::rsplitn_str`](#api-22)
-- [`goostr::rsplit_str`](#api-23)
-- [`goostr::split_once_str`](#api-24)
-- [`goostr::rsplit_once_str`](#api-25)
-- [`goostr::replacen_into`](#api-26)
-- [`goostr::replace_into`](#api-27)
-- [`goostr::replacen`](#api-28)
-- [`goostr::replace`](#api-29)
-- [`goostr::repeatn`](#api-30)
-- [`goostr::lines_with_terminator`](#api-31)
-- [`goostr::lines`](#api-32)
-- [`goostr::find_non_ascii_byte`](#api-33)
-- [`goostr::is_ascii`](#api-34)
-- [`goostr::make_ascii_lowercase`](#api-35)
-- [`goostr::make_ascii_uppercase`](#api-36)
-- [`goostr::to_ascii_lowercase`](#api-37)
-- [`goostr::to_ascii_uppercase`](#api-38)
-- [`goostr::reverse_bytes`](#api-39)
-- [`goostr::reverse_chars`](#api-40)
-- [`goostr::escape_bytes`](#api-41)
-- [`goostr::decode_utf8`](#api-42)
-- [`goostr::decode_last_utf8`](#api-43)
-- [`goostr::decode_utf8_lossy`](#api-44)
-- [`goostr::decode_last_utf8_lossy`](#api-45)
-- [`goostr::char_indices`](#api-46)
-- [`goostr::chars`](#api-47)
-- [`goostr::validate_utf8`](#api-48)
-- [`goostr::is_utf8`](#api-49)
-- [`goostr::utf8_chunks`](#api-50)
-- [`goostr::to_str_lossy_into`](#api-51)
-- [`goostr::to_str_lossy`](#api-52)
-- [`goostr::is_whitespace`](#api-53)
-- [`goostr::trim_start_with`](#api-54)
-- [`goostr::trim_end_with`](#api-55)
-- [`goostr::trim_with`](#api-56)
-- [`goostr::trim_start`](#api-57)
-- [`goostr::trim_end`](#api-58)
-- [`goostr::trim`](#api-59)
-- [`goostr::fields_with`](#api-60)
-- [`goostr::fields`](#api-61)
+- [`goostr::find_char`](#api-14)
+- [`goostr::rfind_char`](#api-15)
+- [`goostr::find_byteset`](#api-16)
+- [`goostr::find_not_byteset`](#api-17)
+- [`goostr::rfind_byteset`](#api-18)
+- [`goostr::rfind_not_byteset`](#api-19)
+- [`goostr::find_iter`](#api-20)
+- [`goostr::rfind_iter`](#api-21)
+- [`goostr::splitn_str`](#api-22)
+- [`goostr::split_str`](#api-23)
+- [`goostr::rsplitn_str`](#api-24)
+- [`goostr::rsplit_str`](#api-25)
+- [`goostr::split_once_str`](#api-26)
+- [`goostr::rsplit_once_str`](#api-27)
+- [`goostr::replacen_into`](#api-28)
+- [`goostr::replace_into`](#api-29)
+- [`goostr::replacen`](#api-30)
+- [`goostr::replace`](#api-31)
+- [`goostr::repeatn`](#api-32)
+- [`goostr::lines_with_terminator`](#api-33)
+- [`goostr::lines`](#api-34)
+- [`goostr::find_non_ascii_byte`](#api-35)
+- [`goostr::is_ascii`](#api-36)
+- [`goostr::make_ascii_lowercase`](#api-37)
+- [`goostr::make_ascii_uppercase`](#api-38)
+- [`goostr::to_ascii_lowercase`](#api-39)
+- [`goostr::to_ascii_uppercase`](#api-40)
+- [`goostr::reverse_bytes`](#api-41)
+- [`goostr::reverse_chars`](#api-42)
+- [`goostr::escape_bytes`](#api-43)
+- [`goostr::unescape_bytes`](#api-44)
+- [`goostr::decode_utf8`](#api-45)
+- [`goostr::decode_last_utf8`](#api-46)
+- [`goostr::decode_utf8_lossy`](#api-47)
+- [`goostr::decode_last_utf8_lossy`](#api-48)
+- [`goostr::char_indices`](#api-49)
+- [`goostr::chars`](#api-50)
+- [`goostr::validate_utf8`](#api-51)
+- [`goostr::is_utf8`](#api-52)
+- [`goostr::utf8_chunks`](#api-53)
+- [`goostr::to_str_lossy_into`](#api-54)
+- [`goostr::to_str_lossy`](#api-55)
+- [`goostr::is_whitespace`](#api-56)
+- [`goostr::trim_start_with`](#api-57)
+- [`goostr::trim_end_with`](#api-58)
+- [`goostr::trim_with`](#api-59)
+- [`goostr::trim_start`](#api-60)
+- [`goostr::trim_end`](#api-61)
+- [`goostr::trim`](#api-62)
+- [`goostr::fields_with`](#api-63)
+- [`goostr::fields`](#api-64)
 
 <a id="api-1"></a>
 
 ## `goostr::Finder`
 
-[source](search.goose#L313-L313)
+[source](search.goose#L368-L368)
 
 ```goose
 struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
@@ -86,7 +89,7 @@ assert(goostr::find(f, "ababa") == 0);
 
 ## `goostr::FinderReverse`
 
-[source](search.goose#L321-L321)
+[source](search.goose#L376-L376)
 
 ```goose
 struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
@@ -104,7 +107,7 @@ assert(goostr::rfind(f, "ababa") == 2);
 
 ## `goostr::finder`
 
-[source](search.goose#L387-L392)
+[source](search.goose#L442-L447)
 
 ```goose
 fn finder(needle: const u8[:]) -> Finder
@@ -123,7 +126,7 @@ assert(goostr::find(f, "haystack") == -1);
 
 ## `goostr::finder_reverse`
 
-[source](search.goose#L402-L410)
+[source](search.goose#L457-L465)
 
 ```goose
 fn finder_reverse(needle: const u8[:]) -> FinderReverse
@@ -142,7 +145,7 @@ assert(goostr::rfind(f, "name") == -1);
 
 ## `goostr::find`
 
-[source](search.goose#L451-L463)
+[source](search.goose#L506-L518)
 
 ```goose
 fn find(f: const Finder&, s: const u8[:]) -> i64
@@ -161,7 +164,7 @@ assert(goostr::find(f, "ab") == -1);
 
 ## `goostr::rfind`
 
-[source](search.goose#L525-L541)
+[source](search.goose#L580-L596)
 
 ```goose
 fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64
@@ -180,7 +183,7 @@ assert(goostr::rfind(f, "ab") == -1);
 
 ## `goostr::find`
 
-[source](search.goose#L585-L590)
+[source](search.goose#L640-L645)
 
 ```goose
 fn find(s: const u8[:], needle: const u8[:]) -> i64
@@ -199,7 +202,7 @@ assert(goostr::find("abc", "x") == -1);
 
 ## `goostr::rfind`
 
-[source](search.goose#L600-L611)
+[source](search.goose#L655-L666)
 
 ```goose
 fn rfind(s: const u8[:], needle: const u8[:]) -> i64
@@ -301,9 +304,47 @@ assert(goostr::rfind_byte("goose", 'x') == -1);
 
 <a id="api-14"></a>
 
+## `goostr::find_char`
+
+[source](goostr.goose#L77-L80)
+
+```goose
+fn find_char(s: const u8[:], cp: i64) -> i64
+```
+
+Return the first byte offset of the UTF-8 encoding of cp, or -1 if absent.
+Asserts cp is a Unicode scalar (0..0x10FFFF, excluding surrogates).
+Malformed input bytes are not interpreted as replacement characters.
+
+```goose
+assert(goostr::find_char("café café", 0xE9) == 3);
+assert(goostr::find_char("\xFF", 0xFFFD) == -1);
+```
+
+<a id="api-15"></a>
+
+## `goostr::rfind_char`
+
+[source](goostr.goose#L90-L93)
+
+```goose
+fn rfind_char(s: const u8[:], cp: i64) -> i64
+```
+
+Return the last byte offset of the UTF-8 encoding of cp, or -1 if absent.
+Asserts cp is a Unicode scalar (0..0x10FFFF, excluding surrogates).
+Malformed input bytes are not interpreted as replacement characters.
+
+```goose
+assert(goostr::rfind_char("café café", 0xE9) == 9);
+assert(goostr::rfind_char("\xFF�", 0xFFFD) == 1);
+```
+
+<a id="api-16"></a>
+
 ## `goostr::find_byteset`
 
-[source](goostr.goose#L59-L61)
+[source](goostr.goose#L102-L104)
 
 ```goose
 fn find_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -317,11 +358,11 @@ assert(goostr::find_byteset("abc,def;ghi", ",;") == 3);
 assert(goostr::find_byteset("abc", "") == -1);
 ```
 
-<a id="api-15"></a>
+<a id="api-17"></a>
 
 ## `goostr::find_not_byteset`
 
-[source](goostr.goose#L70-L72)
+[source](goostr.goose#L113-L115)
 
 ```goose
 fn find_not_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -335,11 +376,11 @@ assert(goostr::find_not_byteset("  \tname", " \t") == 3);
 assert(goostr::find_not_byteset("  ", " ") == -1);
 ```
 
-<a id="api-16"></a>
+<a id="api-18"></a>
 
 ## `goostr::rfind_byteset`
 
-[source](goostr.goose#L81-L83)
+[source](goostr.goose#L124-L126)
 
 ```goose
 fn rfind_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -353,11 +394,11 @@ assert(goostr::rfind_byteset("abc,def;ghi", ",;") == 7);
 assert(goostr::rfind_byteset("abc", "") == -1);
 ```
 
-<a id="api-17"></a>
+<a id="api-19"></a>
 
 ## `goostr::rfind_not_byteset`
 
-[source](goostr.goose#L92-L94)
+[source](goostr.goose#L135-L137)
 
 ```goose
 fn rfind_not_byteset(s: const u8[:], set: const u8[:]) -> i64
@@ -371,11 +412,11 @@ assert(goostr::rfind_not_byteset("name \t ", " \t") == 3);
 assert(goostr::rfind_not_byteset("", "") == -1);
 ```
 
-<a id="api-18"></a>
+<a id="api-20"></a>
 
 ## `goostr::find_iter`
 
-[source](goostr.goose#L105-L116)
+[source](goostr.goose#L148-L159)
 
 ```goose
 fn find_iter<F>(s: const u8[:], needle: const u8[:])
@@ -391,11 +432,11 @@ goostr::find_iter("ababa", "aba") { at => offsets.push(at); }
 assert(offsets.len == 1 && offsets[0] == 0); // Matches do not overlap.
 ```
 
-<a id="api-19"></a>
+<a id="api-21"></a>
 
 ## `goostr::rfind_iter`
 
-[source](goostr.goose#L127-L136)
+[source](goostr.goose#L170-L179)
 
 ```goose
 fn rfind_iter<F>(s: const u8[:], needle: const u8[:])
@@ -411,11 +452,11 @@ goostr::rfind_iter("ababa", "aba") { at => offsets.push(at); }
 assert(offsets.len == 1 && offsets[0] == 2);
 ```
 
-<a id="api-20"></a>
+<a id="api-22"></a>
 
 ## `goostr::splitn_str`
 
-[source](goostr.goose#L148-L160)
+[source](goostr.goose#L191-L203)
 
 ```goose
 fn splitn_str<F>(s: const u8[:], needle: const u8[:], n: i64)
@@ -432,11 +473,11 @@ goostr::splitn_str("a:b:c", ":", 2) { part => parts.push(part); }
 assert(parts.len == 2 && parts[0] == "a" && parts[1] == "b:c");
 ```
 
-<a id="api-21"></a>
+<a id="api-23"></a>
 
 ## `goostr::split_str`
 
-[source](goostr.goose#L171-L173)
+[source](goostr.goose#L214-L216)
 
 ```goose
 fn split_str<F>(s: const u8[:], needle: const u8[:])
@@ -452,11 +493,11 @@ goostr::split_str("a::b::", "::") { part => parts.push(part); }
 assert(parts.len == 3 && parts[1] == "b" && parts[2] == "");
 ```
 
-<a id="api-22"></a>
+<a id="api-24"></a>
 
 ## `goostr::rsplitn_str`
 
-[source](goostr.goose#L185-L197)
+[source](goostr.goose#L228-L240)
 
 ```goose
 fn rsplitn_str<F>(s: const u8[:], needle: const u8[:], n: i64)
@@ -473,11 +514,11 @@ goostr::rsplitn_str("a:b:c", ":", 2) { part => parts.push(part); }
 assert(parts.len == 2 && parts[0] == "c" && parts[1] == "a:b");
 ```
 
-<a id="api-23"></a>
+<a id="api-25"></a>
 
 ## `goostr::rsplit_str`
 
-[source](goostr.goose#L208-L210)
+[source](goostr.goose#L251-L253)
 
 ```goose
 fn rsplit_str<F>(s: const u8[:], needle: const u8[:])
@@ -493,11 +534,11 @@ goostr::rsplit_str("a:b:c", ":") { part => parts.push(part); }
 assert(parts.len == 3 && parts[0] == "c" && parts[2] == "a");
 ```
 
-<a id="api-24"></a>
+<a id="api-26"></a>
 
 ## `goostr::split_once_str`
 
-[source](goostr.goose#L220-L224)
+[source](goostr.goose#L263-L267)
 
 ```goose
 fn split_once_str(s: const u8[:], needle: const u8[:]) -> const u8[:], const u8[:], bool
@@ -512,11 +553,11 @@ let key, value, found = goostr::split_once_str("name=goose=bird", "=");
 assert(found && key == "name" && value == "goose=bird");
 ```
 
-<a id="api-25"></a>
+<a id="api-27"></a>
 
 ## `goostr::rsplit_once_str`
 
-[source](goostr.goose#L234-L238)
+[source](goostr.goose#L277-L281)
 
 ```goose
 fn rsplit_once_str(s: const u8[:], needle: const u8[:]) -> const u8[:], const u8[:], bool
@@ -531,11 +572,11 @@ let base, extension, found = goostr::rsplit_once_str("archive.tar.gz", ".");
 assert(found && base == "archive.tar" && extension == "gz");
 ```
 
-<a id="api-26"></a>
+<a id="api-28"></a>
 
 ## `goostr::replacen_into`
 
-[source](goostr.goose#L250-L262)
+[source](goostr.goose#L293-L305)
 
 ```goose
 fn replacen_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], n: i64, out: u8[>..]&)
@@ -552,11 +593,11 @@ goostr::replacen_into("a-a-a", "-", "/", 1, out);
 assert(out == "result: a/a-a");
 ```
 
-<a id="api-27"></a>
+<a id="api-29"></a>
 
 ## `goostr::replace_into`
 
-[source](goostr.goose#L274-L276)
+[source](goostr.goose#L317-L319)
 
 ```goose
 fn replace_into(s: const u8[:], needle: const u8[:], replacement: const u8[:], out: u8[>..]&)
@@ -573,11 +614,11 @@ goostr::replace_into("a\0b", "\0", "/", out);
 assert(out == "result: a/b");
 ```
 
-<a id="api-28"></a>
+<a id="api-30"></a>
 
 ## `goostr::replacen`
 
-[source](goostr.goose#L286-L290)
+[source](goostr.goose#L329-L333)
 
 ```goose
 fn replacen(s: const u8[:], needle: const u8[:], replacement: const u8[:], n: i64) -> u8[>..]
@@ -592,11 +633,11 @@ assert(goostr::replacen("a-a-a", "-", "/", 1) == "a/a-a");
 assert(goostr::replacen("abc", "b", "X", 0) == "abc");
 ```
 
-<a id="api-29"></a>
+<a id="api-31"></a>
 
 ## `goostr::replace`
 
-[source](goostr.goose#L300-L302)
+[source](goostr.goose#L343-L345)
 
 ```goose
 fn replace(s: const u8[:], needle: const u8[:], replacement: const u8[:]) -> u8[>..]
@@ -611,11 +652,11 @@ assert(goostr::replace("a-a-a", "-", "/") == "a/a/a");
 assert(goostr::replace("ab", "", "-") == "-a-b-");
 ```
 
-<a id="api-30"></a>
+<a id="api-32"></a>
 
 ## `goostr::repeatn`
 
-[source](goostr.goose#L311-L317)
+[source](goostr.goose#L354-L360)
 
 ```goose
 fn repeatn(s: const u8[:], n: i64) -> u8[>..]
@@ -629,11 +670,11 @@ assert(goostr::repeatn("ab", 3) == "ababab");
 assert(goostr::repeatn("ab", 0) == "");
 ```
 
-<a id="api-31"></a>
+<a id="api-33"></a>
 
 ## `goostr::lines_with_terminator`
 
-[source](goostr.goose#L328-L334)
+[source](goostr.goose#L371-L377)
 
 ```goose
 fn lines_with_terminator<F>(s: const u8[:])
@@ -649,11 +690,11 @@ goostr::lines_with_terminator("a\r\nb\n") { row => rows.push(row); }
 assert(rows.len == 2 && rows[0] == "a\r\n" && rows[1] == "b\n");
 ```
 
-<a id="api-32"></a>
+<a id="api-34"></a>
 
 ## `goostr::lines`
 
-[source](goostr.goose#L345-L354)
+[source](goostr.goose#L388-L397)
 
 ```goose
 fn lines<F>(s: const u8[:])
@@ -669,11 +710,11 @@ goostr::lines("a\r\nb\n") { row => rows.push(row); }
 assert(rows.len == 2 && rows[0] == "a" && rows[1] == "b");
 ```
 
-<a id="api-33"></a>
+<a id="api-35"></a>
 
 ## `goostr::find_non_ascii_byte`
 
-[source](goostr.goose#L362-L365)
+[source](goostr.goose#L405-L408)
 
 ```goose
 fn find_non_ascii_byte(s: const u8[:]) -> i64
@@ -686,11 +727,11 @@ assert(goostr::find_non_ascii_byte("café") == 3);
 assert(goostr::find_non_ascii_byte("goose") == -1);
 ```
 
-<a id="api-34"></a>
+<a id="api-36"></a>
 
 ## `goostr::is_ascii`
 
-[source](goostr.goose#L373-L373)
+[source](goostr.goose#L416-L416)
 
 ```goose
 fn is_ascii(s: const u8[:]) -> bool
@@ -703,11 +744,11 @@ assert(goostr::is_ascii("a\0b"));
 assert(!goostr::is_ascii("café"));
 ```
 
-<a id="api-35"></a>
+<a id="api-37"></a>
 
 ## `goostr::make_ascii_lowercase`
 
-[source](goostr.goose#L383-L388)
+[source](goostr.goose#L426-L431)
 
 ```goose
 fn make_ascii_lowercase(s: u8[:])
@@ -722,11 +763,11 @@ goostr::make_ascii_lowercase(bytes);
 assert(bytes == "goose\xFF");
 ```
 
-<a id="api-36"></a>
+<a id="api-38"></a>
 
 ## `goostr::make_ascii_uppercase`
 
-[source](goostr.goose#L398-L403)
+[source](goostr.goose#L441-L446)
 
 ```goose
 fn make_ascii_uppercase(s: u8[:])
@@ -741,11 +782,11 @@ goostr::make_ascii_uppercase(bytes);
 assert(bytes == "GOOSE\xFF");
 ```
 
-<a id="api-37"></a>
+<a id="api-39"></a>
 
 ## `goostr::to_ascii_lowercase`
 
-[source](goostr.goose#L411-L416)
+[source](goostr.goose#L454-L459)
 
 ```goose
 fn to_ascii_lowercase(s: const u8[:]) -> u8[>..]
@@ -758,11 +799,11 @@ are unchanged; this is not Unicode case conversion.
 assert(goostr::to_ascii_lowercase("CAFÉ") == "cafÉ");
 ```
 
-<a id="api-38"></a>
+<a id="api-40"></a>
 
 ## `goostr::to_ascii_uppercase`
 
-[source](goostr.goose#L424-L429)
+[source](goostr.goose#L467-L472)
 
 ```goose
 fn to_ascii_uppercase(s: const u8[:]) -> u8[>..]
@@ -775,11 +816,11 @@ are unchanged; this is not Unicode case conversion.
 assert(goostr::to_ascii_uppercase("café") == "CAFé");
 ```
 
-<a id="api-39"></a>
+<a id="api-41"></a>
 
 ## `goostr::reverse_bytes`
 
-[source](goostr.goose#L439-L445)
+[source](goostr.goose#L482-L488)
 
 ```goose
 fn reverse_bytes(s: u8[:])
@@ -794,11 +835,11 @@ goostr::reverse_bytes(bytes);
 assert(bytes == "cb\0a");
 ```
 
-<a id="api-40"></a>
+<a id="api-42"></a>
 
 ## `goostr::reverse_chars`
 
-[source](goostr.goose#L456-L464)
+[source](goostr.goose#L499-L507)
 
 ```goose
 fn reverse_chars(s: u8[:])
@@ -814,11 +855,11 @@ goostr::reverse_chars(bytes);
 assert(bytes == "\xFFéa");
 ```
 
-<a id="api-41"></a>
+<a id="api-43"></a>
 
 ## `goostr::escape_bytes`
 
-[source](goostr.goose#L474-L496)
+[source](goostr.goose#L517-L539)
 
 ```goose
 fn escape_bytes(s: const u8[:]) -> u8[>..]
@@ -833,7 +874,28 @@ assert(goostr::escape_bytes("a \xFF\n") == "a\\x20\\xFF\\n");
 assert(goostr::escape_bytes("café") == "café");
 ```
 
-<a id="api-42"></a>
+<a id="api-44"></a>
+
+## `goostr::unescape_bytes`
+
+[source](goostr.goose#L551-L584)
+
+```goose
+fn unescape_bytes(s: const u8[:]) -> u8[>..]
+```
+
+Decode `\0`, `\n`, `\r`, `\t`, `\\`, and `\xHH` (case-insensitive hex) into owned bytes.
+Unknown or incomplete escapes are kept literally, including characters
+consumed while attempting a hex escape. Other bytes, even malformed UTF-8,
+are unchanged. Unicode escapes such as `\u{1234}` are not interpreted.
+
+```goose
+assert(goostr::unescape_bytes("café\\xFF\\n") == "café\xFF\n");
+assert(goostr::unescape_bytes("\\xZ\\q") == "\\xZ\\q");
+assert(goostr::unescape_bytes(goostr::escape_bytes("a\0\xFF")) == "a\0\xFF");
+```
+
+<a id="api-45"></a>
 
 ## `goostr::decode_utf8`
 
@@ -852,7 +914,7 @@ let cp, size, valid = goostr::decode_utf8("é!");
 assert(cp == 0xE9 && size == 2 && valid);
 ```
 
-<a id="api-43"></a>
+<a id="api-46"></a>
 
 ## `goostr::decode_last_utf8`
 
@@ -871,7 +933,7 @@ let cp, size, valid = goostr::decode_last_utf8("!é");
 assert(cp == 0xE9 && size == 2 && valid);
 ```
 
-<a id="api-44"></a>
+<a id="api-47"></a>
 
 ## `goostr::decode_utf8_lossy`
 
@@ -889,7 +951,7 @@ let cp, size = goostr::decode_utf8_lossy("\xE2\x82!");
 assert(cp == 0xFFFD && size == 2);
 ```
 
-<a id="api-45"></a>
+<a id="api-48"></a>
 
 ## `goostr::decode_last_utf8_lossy`
 
@@ -907,7 +969,7 @@ let cp, size = goostr::decode_last_utf8_lossy("!\xE2\x82");
 assert(cp == 0xFFFD && size == 2);
 ```
 
-<a id="api-46"></a>
+<a id="api-49"></a>
 
 ## `goostr::char_indices`
 
@@ -930,7 +992,7 @@ goostr::char_indices("aé\xFF") { start, end, cp =>
 assert(starts.len == 3 && starts[2] == 3);
 ```
 
-<a id="api-47"></a>
+<a id="api-50"></a>
 
 ## `goostr::chars`
 
@@ -949,7 +1011,7 @@ goostr::chars("é\xFF") { cp => points.push(cp); }
 assert(points.len == 2 && points[0] == 0xE9 && points[1] == 0xFFFD);
 ```
 
-<a id="api-48"></a>
+<a id="api-51"></a>
 
 ## `goostr::validate_utf8`
 
@@ -969,7 +1031,7 @@ let valid_end, no_error = goostr::validate_utf8("é");
 assert(valid_end == 2 && no_error == 0);
 ```
 
-<a id="api-49"></a>
+<a id="api-52"></a>
 
 ## `goostr::is_utf8`
 
@@ -986,7 +1048,7 @@ assert(goostr::is_utf8("café"));
 assert(!goostr::is_utf8("caf\xFF"));
 ```
 
-<a id="api-50"></a>
+<a id="api-53"></a>
 
 ## `goostr::utf8_chunks`
 
@@ -1010,7 +1072,7 @@ assert(valid_parts.len == 2 && valid_parts[0] == "ok" && valid_parts[1] == "é")
 assert(invalid_parts[0] == "\xFF" && invalid_parts[1] == "");
 ```
 
-<a id="api-51"></a>
+<a id="api-54"></a>
 
 ## `goostr::to_str_lossy_into`
 
@@ -1030,7 +1092,7 @@ goostr::to_str_lossy_into("goose\xFF", out);
 assert(out == "name: goose�");
 ```
 
-<a id="api-52"></a>
+<a id="api-55"></a>
 
 ## `goostr::to_str_lossy`
 
@@ -1047,7 +1109,7 @@ U+FFFD. Valid input is copied unchanged.
 assert(goostr::to_str_lossy("a\xE2\x82!é") == "a�!é");
 ```
 
-<a id="api-53"></a>
+<a id="api-56"></a>
 
 ## `goostr::is_whitespace`
 
@@ -1064,7 +1126,7 @@ assert(goostr::is_whitespace(0xA0)); // Non-breaking space.
 assert(!goostr::is_whitespace(0x200B)); // Zero-width space is not White_Space.
 ```
 
-<a id="api-54"></a>
+<a id="api-57"></a>
 
 ## `goostr::trim_start_with`
 
@@ -1082,7 +1144,7 @@ let name = goostr::trim_start_with("--name--") { cp => cp == '-' };
 assert(name == "name--");
 ```
 
-<a id="api-55"></a>
+<a id="api-58"></a>
 
 ## `goostr::trim_end_with`
 
@@ -1100,7 +1162,7 @@ let name = goostr::trim_end_with("--name--") { cp => cp == '-' };
 assert(name == "--name");
 ```
 
-<a id="api-56"></a>
+<a id="api-59"></a>
 
 ## `goostr::trim_with`
 
@@ -1118,7 +1180,7 @@ let name = goostr::trim_with("--first-last--") { cp => cp == '-' };
 assert(name == "first-last");
 ```
 
-<a id="api-57"></a>
+<a id="api-60"></a>
 
 ## `goostr::trim_start`
 
@@ -1134,7 +1196,7 @@ Return a view borrowing s without leading Unicode White_Space.
 assert(goostr::trim_start("\xC2\xA0name \t") == "name \t"); // Leading NBSP.
 ```
 
-<a id="api-58"></a>
+<a id="api-61"></a>
 
 ## `goostr::trim_end`
 
@@ -1150,7 +1212,7 @@ Return a view borrowing s without trailing Unicode White_Space.
 assert(goostr::trim_end("\t name\xC2\xA0") == "\t name"); // Trailing NBSP.
 ```
 
-<a id="api-59"></a>
+<a id="api-62"></a>
 
 ## `goostr::trim`
 
@@ -1166,7 +1228,7 @@ Return a view borrowing s without Unicode White_Space at either end.
 assert(goostr::trim("\xC2\xA0 first last \t") == "first last");
 ```
 
-<a id="api-60"></a>
+<a id="api-63"></a>
 
 ## `goostr::fields_with`
 
@@ -1187,7 +1249,7 @@ goostr::fields_with(",one,,two,", comma) { part => parts.push(part); }
 assert(parts.len == 2 && parts[0] == "one" && parts[1] == "two");
 ```
 
-<a id="api-61"></a>
+<a id="api-64"></a>
 
 ## `goostr::fields`
 

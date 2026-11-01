@@ -30,6 +30,12 @@ def corpus():
                  b"\xED\xA0\x80", b"\xF4\x90\x80\x80", b"\xF0\x80\x80\x80"):
         # Repeat so every needle/limit choice below is exercised.
         yield from itertools.repeat(data, 30)
+    # Hex-escape failures consume the offending character, even a backslash.
+    for n in range(4):
+        for suffix in itertools.product(b"x0aFZ\\nt", repeat=n):
+            yield b"\\" + bytes(suffix)
+    for suffix in ("é\\n", "A雪\\t", "\\n", "A\\n"):
+        yield b"\\x" + suffix.encode()
     rng = random.Random(0xB57)
     for _ in range(4000):
         alphabet = rng.choice([bytes(range(256)), b"ab\0\r\n", "aé雪🦆 　".encode()])

@@ -49,6 +49,49 @@ fn rfind_byte(s: const u8[:], byte: u8) -> i64 {
     return byte_search(s, byte, true);
 }
 
+// Encode a Unicode scalar without allocating a temporary string.
+fn char_bytes(cp: i64) -> u8[4], i64 {
+    assert(cp >= 0 && cp <= 0x10FFFF && (cp < 0xD800 || cp > 0xDFFF));
+    var bytes: u8[4] = [0; 4];
+    let size = if cp < 0x80 { 1 } else if cp < 0x800 { 2 } else if cp < 0x10000 { 3 } else { 4 };
+    var rest = cp;
+    var i = size - 1;
+    while i > 0 {
+        bytes[i] = (0x80 | (rest & 0x3F)) as u8;
+        rest >>= 6;
+        i -= 1;
+    }
+    let prefix = if size == 1 { 0 } else if size == 2 { 0xC0 } else if size == 3 { 0xE0 } else { 0xF0 };
+    bytes[0] = (prefix | rest) as u8;
+    return bytes, size;
+}
+
+// Return the first byte offset of the UTF-8 encoding of cp, or -1 if absent.
+// Asserts cp is a Unicode scalar (0..0x10FFFF, excluding surrogates).
+// Malformed input bytes are not interpreted as replacement characters.
+//
+// ```goose
+// assert(goostr::find_char("café café", 0xE9) == 3);
+// assert(goostr::find_char("\xFF", 0xFFFD) == -1);
+// ```
+fn find_char(s: const u8[:], cp: i64) -> i64 {
+    let bytes, size = char_bytes(cp);
+    return find(s, bytes[..size]);
+}
+
+// Return the last byte offset of the UTF-8 encoding of cp, or -1 if absent.
+// Asserts cp is a Unicode scalar (0..0x10FFFF, excluding surrogates).
+// Malformed input bytes are not interpreted as replacement characters.
+//
+// ```goose
+// assert(goostr::rfind_char("café café", 0xE9) == 9);
+// assert(goostr::rfind_char("\xFF�", 0xFFFD) == 1);
+// ```
+fn rfind_char(s: const u8[:], cp: i64) -> i64 {
+    let bytes, size = char_bytes(cp);
+    return rfind(s, bytes[..size]);
+}
+
 // Return the first offset of any byte in set, or -1 if absent.
 // Duplicates in set have no effect; an empty set never matches.
 //
@@ -491,6 +534,51 @@ fn escape_bytes(s: const u8[:]) -> u8[>..] {
         else if b == '\\' { out.append("\\\\"); }
         else { out.append("\\x"); out.push(hex[b >> 4]); out.push(hex[b & 15]); }
         i += 1;
+    }
+    return out;
+}
+
+// Decode `\0`, `\n`, `\r`, `\t`, `\\`, and `\xHH` (case-insensitive hex) into owned bytes.
+// Unknown or incomplete escapes are kept literally, including characters
+// consumed while attempting a hex escape. Other bytes, even malformed UTF-8,
+// are unchanged. Unicode escapes such as `\u{1234}` are not interpreted.
+//
+// ```goose
+// assert(goostr::unescape_bytes("café\\xFF\\n") == "café\xFF\n");
+// assert(goostr::unescape_bytes("\\xZ\\q") == "\\xZ\\q");
+// assert(goostr::unescape_bytes(goostr::escape_bytes("a\0\xFF")) == "a\0\xFF");
+// ```
+fn unescape_bytes(s: const u8[:]) -> u8[>..] {
+    var out: u8[>..] = [];
+    var i = 0;
+    while i < s.len {
+        let start = i;
+        let b = s[i];
+        i += 1;
+        if b != '\\' || i == s.len { out.push(b); continue; }
+        let escaped = s[i];
+        i += 1;
+        if escaped == '0' { out.push(0); }
+        else if escaped == 'n' { out.push('\n'); }
+        else if escaped == 'r' { out.push('\r'); }
+        else if escaped == 't' { out.push('\t'); }
+        else if escaped == '\\' { out.push('\\'); }
+        else if escaped == 'x' {
+            var value = 0;
+            var digits = 0;
+            while digits < 2 && i < s.len {
+                let ch = s[i];
+                i += 1;
+                let digit = if ch >= '0' && ch <= '9' { ch - '0' }
+                    else if (ch | 32) >= 'a' && (ch | 32) <= 'f' { (ch | 32) - 'a' + 10 }
+                    else { -1 };
+                if digit < 0 { break; }
+                value = value * 16 + digit;
+                digits += 1;
+            }
+            if digits == 2 { out.push(value as u8); }
+            else { out.append(s[start..i]); }
+        } else { out.append(s[start..i]); }
     }
     return out;
 }
