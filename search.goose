@@ -90,6 +90,20 @@ inline fn packed_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefi
         xs = xs[32..];
         ys = ys[32..];
     }
+    if xs.len > 0 && count >= 32 {
+        // Keep the final load in bounds. Overlapping positions already failed
+        // verification (or would have returned immediately in prefilter mode).
+        let start = count - 32;
+        let vx = goosimd::load<goosimd::U8x32>(s[a + start..]).eq(x);
+        let vy = goosimd::load<goosimd::U8x32>(s[b + start..]).eq(y);
+        var hits = vx.bit_and(vy).to_bits();
+        while hits != 0 {
+            let at = start + ctz(hits);
+            if prefilter || equal_short(s[at..], needle) { return at; }
+            hits &= hits - 1;
+        }
+        return -1;
+    }
     for pos in xs.len {
         let at = count - xs.len + pos;
         if xs[pos] == x && ys[pos] == y &&
@@ -127,6 +141,18 @@ inline fn packed_reverse_scan(s: const u8[:], needle: const u8[:], a: i64, b: i6
         }
         xs = xs[..start];
         ys = ys[..start];
+        // Skip two blocks only when neither contains a candidate. Otherwise
+        // the outer loop resolves candidates from the last block first.
+        while xs.len >= 64 {
+            let next = xs.len - 64;
+            let x0 = goosimd::load<goosimd::U8x32>(xs[next..]).eq(x);
+            let y0 = goosimd::load<goosimd::U8x32>(ys[next..]).eq(y);
+            let x1 = goosimd::load<goosimd::U8x32>(xs[next + 32..]).eq(x);
+            let y1 = goosimd::load<goosimd::U8x32>(ys[next + 32..]).eq(y);
+            if x0.bit_and(y0).bit_or(x1.bit_and(y1)).to_bits() != 0 { break; }
+            xs = xs[..next];
+            ys = ys[..next];
+        }
     }
     for offset in xs.len {
         let at = xs.len - 1 - offset;
@@ -455,7 +481,8 @@ fn finder(needle: const u8[:]) -> Finder {
 // assert(goostr::rfind(f, "name") == -1);
 // ```
 fn finder_reverse(needle: const u8[:]) -> FinderReverse {
-    var f = FinderReverse { needle: needle, two: two_way(needle, true), a: 0, b: 0 };
+    var f = FinderReverse { needle: needle, two: default<TwoWay>(), a: 0, b: 0 };
+    if needle.len > 1 { f.two = two_way(needle, true); }
     if needle.len <= 32 {
         let a, b = rare_pair(needle);
         f.a = a;
@@ -464,12 +491,13 @@ fn finder_reverse(needle: const u8[:]) -> FinderReverse {
     return f;
 }
 
-// Tiny haystacks need no rare-pair preprocessing. Use the first/last bytes
-// for 16..31 SIMD candidates, and Rabin-Karp otherwise.
+// Tiny haystacks need no rare-pair preprocessing. Scan single bytes directly;
+// use the first/last bytes for 16..31 SIMD candidates, and Rabin-Karp otherwise.
 // The 64-byte haystack bound prevents quadratic asymptotics.
 inline fn find_small(s: const u8[:], needle: const u8[:], reverse: bool) -> i64 {
     if needle.len > s.len { return -1; }
     if needle.len == 0 { return if reverse { s.len } else { 0 }; }
+    if needle.len == 1 { return byte_search(s, needle[0], reverse); }
     let candidates = s.len - needle.len + 1;
     if needle.len >= 2 && needle.len <= 32 && candidates >= 16 && candidates < 32 {
         return packed_small(s, needle, 0, needle.len - 1, reverse);
@@ -521,12 +549,14 @@ fn find(f: const Finder&, s: const u8[:]) -> i64 {
 // needles don't pay for tracking the part of a periodic match already seen.
 inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 {
     let needle = f.needle;
+    let two = f.two;
+    let last = s.len - needle.len;
     var pos = 0;
     var memory = 0;
     var skips = 0;
     var skipped = 0;
     var prefilter = true;
-    while pos <= s.len - needle.len {
+    while pos <= last {
         // memchr's adaptive rule: after 50 attempts, retire a prefilter
         // averaging fewer than 8 bytes skipped. Never re-enable it here.
         if prefilter {
@@ -540,12 +570,12 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
                 memory = 0;
             }
         }
-        if f.two.bytes & ((1 as u64) << (s[pos + needle.len - 1] & 63)) == 0 {
+        if two.bytes & ((1 as u64) << (s[pos + needle.len - 1] & 63)) == 0 {
             pos += needle.len; memory = 0; continue;
         }
-        var i = if periodic { max(f.two.critical, memory) } else { f.two.critical };
+        var i = if periodic { max(two.critical, memory) } else { two.critical };
         if i < needle.len && needle[i] != s[pos + i] {
-            pos += i - f.two.critical + 1;
+            pos += i - two.critical + 1;
             memory = 0;
             continue;
         }
@@ -555,15 +585,15 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
             while i < needle.len && needle[i] == window[i] { i += 1; }
         }
         if i < needle.len {
-            pos += i - f.two.critical + 1;
+            pos += i - two.critical + 1;
             memory = 0;
         } else {
-            var j = f.two.critical;
+            var j = two.critical;
             let stop = if periodic { memory } else { 0 };
             while j > stop && needle[j - 1] == window[j - 1] { j -= 1; }
             if j <= stop { return pos; }
-            pos += f.two.period;
-            memory = f.two.memory;
+            pos += two.period;
+            memory = two.memory;
         }
     }
     return -1;
