@@ -402,13 +402,14 @@ struct Finder { needle: const u8[:], a: i64, b: i64, two: TwoWay }
 struct FinderReverse { needle: const u8[:], two: TwoWay, a: i64, b: i64 }
 
 inline fn suffix(s: const u8[:], maximal: bool, reverse: bool) -> i64, i64 {
+    if reverse { return reverse_suffix(s, maximal); }
     var best = 0;
     var period = 1;
     var candidate = 1;
     var offset = 0;
     while candidate + offset < s.len {
-        let x = s[if reverse { s.len - 1 - best - offset } else { best + offset }];
-        let y = s[if reverse { s.len - 1 - candidate - offset } else { candidate + offset }];
+        let x = s[best + offset];
+        let y = s[candidate + offset];
         if x == y {
             if offset + 1 == period { candidate += period; offset = 0; }
             else { offset += 1; }
@@ -424,6 +425,33 @@ inline fn suffix(s: const u8[:], maximal: bool, reverse: bool) -> i64, i64 {
         }
     }
     return best, period;
+}
+
+inline fn reverse_suffix(s: const u8[:], maximal: bool) -> i64, i64 {
+    // Reverse suffixes use exclusive end positions, so their inner loop
+    // indexes backward directly rather than reflecting forward positions.
+    var best = s.len;
+    var period = 1;
+    var candidate = s.len - 1;
+    var offset = 0;
+    while offset < candidate {
+        let x = s[best - offset - 1];
+        let y = s[candidate - offset - 1];
+        if x == y {
+            if offset + 1 == period { candidate -= period; offset = 0; }
+            else { offset += 1; }
+        } else if (maximal && y > x) || (!maximal && y < x) {
+            best = candidate;
+            candidate -= 1;
+            period = 1;
+            offset = 0;
+        } else {
+            candidate -= offset + 1;
+            offset = 0;
+            period = best - candidate;
+        }
+    }
+    return s.len - best, period;
 }
 
 inline fn two_way(s: const u8[:], reverse: bool) -> TwoWay {
