@@ -156,7 +156,7 @@ adding `-mavx2` selects AVX2 at compile time and requires an AVX2 CPU.
 ## Search performance
 
 These warm-cache microbenchmarks compare goostr
-[`e2774d7`](https://github.com/sstadick/goostr/commit/e2774d73d76cc61e96207c188a840b9226d42b0f)
+[`53d16e8`](https://github.com/sstadick/goostr/commit/53d16e834e8c81dbe95c9f1c4ac549f520b60496)
 with bstr 1.13.1 (memchr 2.8.3) on a Ryzen 9 3950X, Linux x86-64.
 Goostr uses Goose `b4609902` and Clang 18.1.3; bstr uses Rust 1.97.1.
 Both use optimization level 2 and runtime SIMD selection, with AVX2 available.
@@ -168,29 +168,28 @@ File I/O and process startup are excluded. Prepared searches exclude finder
 construction on both sides; ordinary substring searches include it.
 
 **Ratio = goostr / bstr; lower is better for goostr.** This selection includes
-wins and losses from 296 case/operation comparisons, not an overall score.
+wins and losses from 128 case/operation comparisons, not an overall score.
 
 | Input / scenario | Operation | goostr | bstr | Ratio |
 | --- | --- | ---: | ---: | ---: |
-| 23 B, substring hit | `find` | 5.6 ns | 35.8 ns | 0.15× |
-| Same, reusable finder | prepared `find` | 5.1 ns | 8.3 ns | 0.61× |
-| 63 B, one-byte miss | `rfind` | 88.1 ns | 18.8 ns | 4.70× |
-| 64 B, three-byte miss | prepared `find` | 19.3 ns | 7.8 ns | 2.48× |
-| 1 MiB text, substring miss | `find` | 16.45 µs | 15.94 µs | 1.03× |
-| Same, searching backward | `rfind` | 23.38 µs | 146.25 µs | 0.16× |
-| 1 MiB random bytes, substring miss | `find` | 16.69 µs | 23.18 µs | 0.72× |
-| 1 MiB, one-byte miss | `find` | 10.92 µs | 10.69 µs | 1.02× |
-| 1 MiB + 33 B, 33-byte needle at end | `rfind` | 160.2 ns | 110.4 ns | 1.45× |
-| 1 MiB repetitive data, 256-byte needle miss | `find` | 1,217 µs | 1,700 µs | 0.72× |
-| 1 MiB, two-byte set miss | `find_byteset` | 14.36 µs | 13.38 µs | 1.07× |
-| 1 MiB, three-byte set miss | `find_byteset` | 17.65 µs | 16.50 µs | 1.07× |
-| 1 MiB, four-byte set miss | `find_byteset` | 369.81 µs | 541.03 µs | 0.68× |
-| 768 KiB, all bytes in a three-byte set | `find_not_byteset` | 13.29 µs | 410.40 µs | 0.03× |
+| 23 B, substring hit | `find` | 5.7 ns | 35.5 ns | 0.16× |
+| Same, reusable finder | prepared `find` | 5.0 ns | 8.2 ns | 0.62× |
+| 63 B, one-byte miss | `rfind` | 5.6 ns | 18.8 ns | 0.30× |
+| 64 B, three-byte miss | prepared `find` | 8.5 ns | 7.6 ns | 1.12× |
+| 1 MiB text, substring miss | `find` | 16.60 µs | 15.95 µs | 1.04× |
+| Same, searching backward | `rfind` | 14.26 µs | 145.53 µs | 0.10× |
+| 1 MiB random bytes, substring miss | `find` | 16.45 µs | 23.02 µs | 0.71× |
+| 1 MiB, one-byte miss | `find` | 11.02 µs | 10.73 µs | 1.03× |
+| 1 MiB + 33 B, 33-byte needle at end | `rfind` | 129.4 ns | 110.6 ns | 1.17× |
+| 1 MiB repetitive data, 256-byte needle miss | `find` | 1,206 µs | 1,678 µs | 0.72× |
+| 1 MiB, two-byte set miss | `find_byteset` | 14.22 µs | 13.33 µs | 1.07× |
+| 1 MiB, three-byte set miss | `find_byteset` | 17.04 µs | 16.08 µs | 1.06× |
+| 1 MiB, four-byte set miss | `find_byteset` | 355.91 µs | 524.61 µs | 0.68× |
+| 768 KiB, all bytes in a three-byte set | `find_not_byteset` | 12.90 µs | 399.86 µs | 0.03× |
 
-Compiler settings matter. In 19 additional controls using Rust's default
-release optimization level 3, the text-miss comparison was 17.23 µs versus
-25.22 µs. The small reverse-search loss and two-/three-byte-set gaps remained.
-These results do not predict cold-cache, other-platform, or whole-library
+Compiler settings matter: Rust's default release optimization level is 3,
+while this comparison uses level 2 for both libraries. These results do not
+predict cold-cache, other-platform, or whole-library
 performance. See the benchmark commands below to measure your workload.
 
 ## Contributing
