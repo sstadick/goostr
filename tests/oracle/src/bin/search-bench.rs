@@ -14,6 +14,43 @@ fn opaque(s: &[u8]) -> &[u8] {
     &s[..len as usize]
 }
 
+// Match Goose and memchr's one-shot, non-overlapping count model.
+fn count_matches(s: &[u8], needle: &[u8]) -> u64 {
+    let mut count = 0;
+    let mut start = 0;
+    while start <= s.len() {
+        let Some(at) = s[start..].find(needle) else { break };
+        count += 1;
+        start += at + needle.len().max(1);
+    }
+    count
+}
+
+fn count_reverse(s: &[u8], needle: &[u8]) -> u64 {
+    let mut count = 0;
+    let mut end = s.len();
+    loop {
+        let Some(at) = s[..end].rfind(needle) else { break };
+        count += 1;
+        end = if needle.is_empty() {
+            let Some(end) = at.checked_sub(1) else { break };
+            end
+        } else { at };
+    }
+    count
+}
+
+fn record_prefixes(s: &[u8]) -> u64 {
+    let mut checksum = 0;
+    let mut start = 0;
+    while start < s.len() {
+        let end = s[start..].find_byte(b'\n').map_or(s.len(), |at| start + at);
+        checksum += s[start..end].find_byte(b'|').map_or(0, |at| at as u64 + 1);
+        start = end + 1;
+    }
+    checksum
+}
+
 fn main() {
     assert_eq!(unsafe { goostr_bench_setup() }, 0);
     let args: Vec<_> = env::args().collect();
@@ -31,6 +68,15 @@ fn main() {
         match args[3].as_str() {
             "find" => for _ in 0..iterations {
                 checksum += opaque(&haystack).find(opaque(&needle)).map_or(0, |p| p as u64 + 1);
+            },
+            "count" => for _ in 0..iterations {
+                checksum += count_matches(opaque(&haystack), opaque(&needle)) + 1;
+            },
+            "rcount" => for _ in 0..iterations {
+                checksum += count_reverse(opaque(&haystack), opaque(&needle)) + 1;
+            },
+            "records" => for _ in 0..iterations {
+                checksum += record_prefixes(opaque(&haystack)) + 1;
             },
             "prepared-find" => for _ in 0..iterations {
                 checksum += forward.find(opaque(&haystack)).map_or(0, |p| p as u64 + 1);

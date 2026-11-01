@@ -155,6 +155,11 @@ adding `-mavx2` selects AVX2 at compile time and requires an AVX2 CPU.
 
 ## Search performance
 
+**We do not claim that goostr is faster than bstr.** These are the workloads
+we have benchmarked so far, not a representative comparison of the libraries.
+Results depend on the input, hardware, compiler, and build settings; measure
+your own workload before drawing conclusions.
+
 These warm-cache microbenchmarks compare goostr
 [`53d16e8`](https://github.com/sstadick/goostr/commit/53d16e834e8c81dbe95c9f1c4ac549f520b60496)
 with bstr 1.13.1 (memchr 2.8.3) on a Ryzen 9 3950X, Linux x86-64.
@@ -229,6 +234,53 @@ CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
 Repeat with `--suite byteset` or `--suite boundary` for those operations.
 Choose an available CPU on your machine. Without the environment variable,
 Cargo uses release optimization level 3; the Goose C build still uses `-O2`.
+
+### Upstream search corpora
+
+The `upstream` suite uses all 54 single-literal count cases from
+[memchr 2.8.3](https://github.com/BurntSushi/memchr/tree/5fdb40c054e1fff359a2f7bdf7f87a13b34b465d/benchmarks/definitions/memmem):
+English, Russian, and Chinese OpenSubtitles, Rust library source, a ripgrep
+executable, and pathological inputs. It reads the original files and patterns,
+checks upstream's expected occurrence counts, and records their provenance and
+hashes in the results. Corpus files stay in their upstream checkout rather than
+being redistributed here. Requires Python 3.11+.
+
+```sh
+git clone --depth 1 --branch 2.8.3 https://github.com/BurntSushi/memchr ../memchr-bench
+CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
+  --suite upstream --memchr-checkout ../memchr-bench --cc clang --target runtime \
+  --samples 9 --sample-ms 50 --output upstream.json
+```
+
+`count` repeats one-shot forward searches for non-overlapping matches, following
+memchr's one-shot count model; `rcount` is its reverse adaptation. Finder setup
+is included in each one-shot search. The four `find`/`rfind` modes instead measure
+the first or last match on the same inputs: they are **adapted workloads**, not
+upstream count timings. Prepared modes exclude finder construction. Use
+`--modes count rcount` or `--case 'subtitles/*'` to select a subset.
+
+This is a library comparison, not a ripgrep benchmark. It excludes filesystem
+traversal, regex matching, output formatting, and I/O, and does not reproduce
+memchr's multi-needle `sliceslice` workloads. Large speedups on pathological
+inputs alone do not establish an advantage on real-world text.
+
+The `records` suite uses the dictionary-derived input from Georg Sauthoff's
+[std::find() and memchr() Optimizations](https://gms.tf/stdfind-and-memchr-optimizations.html):
+14,972 variable-length records, each containing a pipe delimiter. Both runners
+find each newline, then the first pipe within that record, and check a checksum
+of the prefix lengths. This exercises short, unaligned searches. It is an
+**in-memory adaptation**: unlike the article, it does not time 128 KiB file
+reads or printing. The corpus is hash-checked and is not production data.
+
+```sh
+git clone https://github.com/gsauthof/find-memchr ../find-memchr-bench
+git -C ../find-memchr-bench checkout 6b0e99b54c9b60b9aaf615d33437a8139162524f
+CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
+  --suite records --record-corpus ../find-memchr-bench/in.gz \
+  --cc clang --target runtime --samples 9 --sample-ms 50 --output records.json
+```
+
+### API documentation
 
 API documentation comes from source comments. With
 [goosdoc v0.2.0](https://github.com/sstadick/goosdoc/releases/tag/v0.2.0)

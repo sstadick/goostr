@@ -109,6 +109,65 @@ fn main() {
             count += 1;
         }
     }
+    // Dense false pair matches must not hide earlier full matches. Exercise
+    // each third-byte position and choose the last of two neighboring matches,
+    // including the highest SIMD lane. Also check a longer periodic needle.
+    for n in ["qbz", "bqz", "qzb", "zzazza"] {
+        for at in [-1, 0, 31, 512, 1200 - n.len] {
+            var h: u8[>..] = [];
+            for i in 400 {
+                if n.len == 3 {
+                    for ch in n { h.push(if ch == 'b' { 'a' } else { ch }); }
+                } else { h.append("zzz"); }
+            }
+            if at >= 0 {
+                for i in n.len {
+                    h[at + i] = n[i];
+                    if at >= n.len { h[at - n.len + i] = n[i]; }
+                }
+            }
+            check(h, n);
+            count += 1;
+        }
+    }
+    // A later endpoint-pair hit may be false. Reverse search must still find
+    // the full match, including across the 16-start tail-probe boundary.
+    for nlen in [33, 65, 257] {
+        var n: u8[>..] = [];
+        n.resize(nlen, 'a');
+        n[nlen / 2] = 'b';
+        for trailing in 0..18 {
+            var h: u8[>..] = [];
+            h.resize(64, 'a');
+            h.append(n);
+            h.resize(h.len + trailing, 'a');
+            check(h, n);
+            h[64 + nlen / 2] = 'a';
+            check(h, n);
+            count += 2;
+        }
+    }
+    // Long periodic and nearly periodic needles, including mismatches next
+    // to eight-byte boundaries and high-bit bytes. Check both hits and misses.
+    for period in [1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 31, 32, 33] {
+        var n: u8[>..] = [];
+        for i in max(65, period * 7 + 3) { n.push((i % period) as u8); }
+        for changed in [-1, 0, 7, 8, n.len / 2, n.len - 9, n.len - 8, n.len - 1] {
+            if changed >= 0 { n[changed] ^= 128; }
+            var h: u8[>..] = [];
+            h.resize(33, 255);
+            h.append(n);
+            h.push(255);
+            h.append(n);
+            h.push(255);
+            check(h, n);
+            h[33 + n.len / 2] ^= 128;
+            h[34 + n.len + n.len / 2] ^= 128;
+            check(h, n);
+            if changed >= 0 { n[changed] ^= 128; }
+            count += 2;
+        }
+    }
     // Defeat the rare-pair prefilter (the distinct byte lies after offset
     // 255), exercising its retirement and Two-Way's periodic memory.
     for nlen in [33, 64, 256, 513] {
@@ -124,6 +183,60 @@ fn main() {
         }
         check(h, n);
         count += 1;
+    }
+    // Long runs retire the pair filter. A false critical-byte hit must not
+    // hide the real match, including at every lane and in the scalar tail.
+    {
+        var n: u8[>..] = [];
+        n.resize(257, 'a');
+        n[255] = 128;
+        for lane in 0..17 {
+            for trailing in [0, 15, 16] {
+                let at = 2048 + lane;
+                var h: u8[>..] = [];
+                h.resize(at + n.len + trailing, 'a');
+                // Vary the false candidate's left-half mismatch without
+                // removing its pair hit.
+                h[259 + lane] = 0;
+                h[512] = 128;
+                for i in n.len { h[at + i] = n[i]; }
+                assert(goostr::find(h, n) == at);
+                check(h, n);
+                h[at + 255] = 'a';
+                assert(goostr::find(h, n) == -1);
+                check(h, n);
+                count += 2;
+                // Mirror the same hits, misses, and lane boundaries for
+                // reverse search, with the false candidate encountered first.
+                h[at + 255] = 128;
+                goostr::reverse_bytes(h);
+                goostr::reverse_bytes(n);
+                assert(goostr::rfind(h, n) == h.len - at - n.len);
+                check(h, n);
+                h[h.len - at - 256] = 'a';
+                assert(goostr::rfind(h, n) == -1);
+                check(h, n);
+                goostr::reverse_bytes(n);
+                count += 2;
+            }
+        }
+        // A periodic right-half match followed by a left-half failure leaves
+        // remembered bytes for the next, overlapping candidate.
+        n.resize(769, 'a');
+        n[511] = 128;
+        n[767] = 128;
+        var h: u8[>..] = [];
+        h.resize(1024 + n.len, 'a');
+        for i in n.len { h[768 + i] = n[i]; }
+        for i in n.len { h[1024 + i] = n[i]; }
+        h[768 + 127] = 0;
+        assert(goostr::find(h, n) == 1024);
+        check(h, n);
+        goostr::reverse_bytes(h);
+        goostr::reverse_bytes(n);
+        assert(goostr::rfind(h, n) == 0);
+        check(h, n);
+        count += 2;
     }
     var state: u64 = 0xB57;
     for trial in 6000 {

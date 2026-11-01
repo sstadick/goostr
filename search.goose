@@ -113,15 +113,24 @@ inline fn packed_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefi
 }
 
 fn packed_reverse(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
-    if !runtime_simd() || s.len - needle.len + 1 < DISPATCH_MIN { return packed_reverse_scan(s, needle, a, b); }
+    if !runtime_simd() || s.len - needle.len + 1 < DISPATCH_MIN {
+        if needle.len == 3 { return packed_reverse_scan(s, needle, a, b, true); }
+        return packed_reverse_scan(s, needle, a, b, false);
+    }
+    if needle.len == 3 { return packed_reverse_triple_wide(s, needle, a, b); }
     return packed_reverse_wide(s, needle, a, b);
 }
 
 simd fn packed_reverse_wide(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
-    return packed_reverse_scan(s, needle, a, b);
+    return packed_reverse_scan(s, needle, a, b, false);
 }
 
-inline fn packed_reverse_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
+simd fn packed_reverse_triple_wide(s: const u8[:], needle: const u8[:], a: i64, b: i64) -> i64 {
+    return packed_reverse_scan(s, needle, a, b, true);
+}
+
+// Callers pass a literal flag to keep the third-byte check out of other scans.
+inline fn packed_reverse_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64, triple: bool) -> i64 {
     if needle.len > s.len || needle.len < 2 { return -1; }
     let x = needle[a];
     let y = needle[b];
@@ -133,6 +142,13 @@ inline fn packed_reverse_scan(s: const u8[:], needle: const u8[:], a: i64, b: i6
         let vx = goosimd::load<goosimd::U8x32>(xs[start..]).eq(x);
         let vy = goosimd::load<goosimd::U8x32>(ys[start..]).eq(y);
         var hits = vx.bit_and(vy).to_bits();
+        if triple && (hits & (hits - 1)) != 0 {
+            // With multiple candidates, checking the third distinct position
+            // resolves a three-byte needle for the whole block at once.
+            let c = 3 - a - b;
+            hits &= goosimd::load<goosimd::U8x32>(s[start + c..]).eq(needle[c]).to_bits();
+            if hits != 0 { return start + 63 - clz(hits); }
+        }
         while hits != 0 {
             let lane = 63 - clz(hits);
             let at = start + lane;
@@ -428,18 +444,26 @@ inline fn suffix(s: const u8[:], maximal: bool, reverse: bool) -> i64, i64 {
 }
 
 inline fn reverse_suffix(s: const u8[:], maximal: bool) -> i64, i64 {
-    // Reverse suffixes use exclusive end positions, so their inner loop
-    // indexes backward directly rather than reflecting forward positions.
-    var best = s.len;
+    // Inclusive byte positions keep the inner loop's indexing to one
+    // subtraction. A candidate of -1 marks the beginning of the slice.
+    var best = s.len - 1;
     var period = 1;
-    var candidate = s.len - 1;
+    var candidate = s.len - 2;
     var offset = 0;
-    while offset < candidate {
-        let x = s[best - offset - 1];
-        let y = s[candidate - offset - 1];
+    while offset <= candidate {
+        let x = s[best - offset];
+        let y = s[candidate - offset];
         if x == y {
-            if offset + 1 == period { candidate -= period; offset = 0; }
-            else { offset += 1; }
+            if offset + 1 == period {
+                candidate -= period;
+                offset = 0;
+                // Extend a complete repeated period, not isolated matches.
+                if candidate >= 7 && s[best] == s[candidate] {
+                    let next, matched = reverse_equal_run(s, best + 1, candidate + 1, period);
+                    candidate = next - 1;
+                    offset = matched;
+                }
+            } else { offset += 1; }
         } else if (maximal && y > x) || (!maximal && y < x) {
             best = candidate;
             candidate -= 1;
@@ -451,7 +475,39 @@ inline fn reverse_suffix(s: const u8[:], maximal: bool) -> i64, i64 {
             period = best - candidate;
         }
     }
-    return s.len - best, period;
+    return s.len - 1 - best, period;
+}
+
+// With exclusive ends, bytes between candidate and best repeat with period.
+// Equal words extend that run across period boundaries; leave the first
+// differing byte to reverse_suffix to decide the lexicographic ordering.
+inline fn reverse_equal_run(s: const u8[:], best: i64, start: i64, period: i64) -> i64, i64 {
+    var candidate = start;
+    var offset = 0;
+    while candidate - offset >= 8 {
+        let different = goosimd::load_u64(s[best - offset - 8..]) ^
+            goosimd::load_u64(s[candidate - offset - 8..]);
+        if different != 0 {
+            // Count the equal bytes from the end of a native-endian word.
+            let bits = if goosimd::load_u16("\x01\x00") == 1 { clz(different) } else { ctz(different) };
+            offset += bits / 8;
+            if offset >= period {
+                let whole = offset / period * period;
+                candidate -= whole;
+                offset -= whole;
+            }
+            break;
+        }
+        if period < 8 {
+            // Advance whole periods, at most eight bytes, without division.
+            let step = if period <= 2 { 8 } else if period <= 4 { period * 2 } else { period };
+            candidate -= step;
+        } else {
+            offset += 8;
+            if offset >= period { candidate -= period; offset -= period; }
+        }
+    }
+    return candidate, offset;
 }
 
 inline fn two_way(s: const u8[:], reverse: bool) -> TwoWay {
@@ -605,7 +661,25 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
         if i < needle.len && needle[i] != s[pos + i] {
             pos += i - two.critical + 1;
             memory = 0;
-            continue;
+            // Skip starts that cannot match the critical byte, even when
+            // the pair filter has retired. Keep the probe bounded when
+            // that byte is common, and leave fewer than 16 starts scalar.
+            if last - pos < 15 { continue; }
+            let at = pos + two.critical;
+            let probe = s[at..at + 16];
+            let byte = needle[two.critical];
+            // Dense matches need only one or two byte comparisons.
+            if probe[0] != byte {
+                if probe[1] == byte { pos += 1; }
+                else {
+                    let hits = goosimd::load<goosimd::U8x16>(probe).eq(byte).to_bits();
+                    if hits == 0 { pos += 16; continue; }
+                    pos += ctz(hits);
+                }
+            }
+            // The new candidate's critical byte matched. Verify it here
+            // rather than filtering and checking that byte a second time.
+            i = two.critical;
         }
         let window = s[pos..pos + needle.len];
         if i < needle.len {
@@ -618,7 +692,13 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
         } else {
             var j = two.critical;
             let stop = if periodic { memory } else { 0 };
-            while j > stop && needle[j - 1] == window[j - 1] { j -= 1; }
+            // Left-half failures all shift by the period; their exact
+            // mismatch position is unnecessary, so compare words first.
+            while j - stop >= 8 && goosimd::load_u64(needle[j - 8..j]) ==
+                goosimd::load_u64(window[j - 8..j]) { j -= 8; }
+            if j - stop < 8 {
+                while j > stop && needle[j - 1] == window[j - 1] { j -= 1; }
+            }
             if j <= stop { return pos; }
             pos += two.period;
             memory = two.memory;
@@ -649,38 +729,64 @@ fn rfind(f: const FinderReverse&, s: const u8[:]) -> i64 {
             return packed_reverse(s, needle, f.a, f.b);
         }
     }
-    if f.two.memory > 0 { return rfind_two_way(f, s, true); }
-    return rfind_two_way(f, s, false);
+    return rfind_two_way(f, s);
 }
 
-inline fn rfind_two_way(f: const FinderReverse&, s: const u8[:], periodic: bool) -> i64 {
+// Share the long-search kernel between prepared and one-shot searches while
+// specializing periodic memory tracking outside the candidate loop.
+fn rfind_two_way(f: const FinderReverse&, s: const u8[:]) -> i64 {
+    if f.two.memory > 0 { return rfind_two_way_scan(f, s, true); }
+    return rfind_two_way_scan(f, s, false);
+}
+
+inline fn rfind_two_way_scan(f: const FinderReverse&, s: const u8[:], periodic: bool) -> i64 {
     let needle = f.needle;
     var rest = s;
-    var memory = needle.len;
-    while rest.len >= needle.len {
-        let base = rest.len - needle.len;
-        if f.two.bytes & ((1 as u64) << (rest[base] & 63)) == 0 {
-            rest = rest[..base]; memory = needle.len; continue;
+    // Skip an initial run with no critical-byte matches. Stop probing at
+    // the first candidate or byte-set jump, then let Two-Way handle dense
+    // matches without paying for a vector probe on every mismatch.
+    if f.two.critical > 0 {
+        let byte = needle[f.two.critical - 1];
+        while rest.len - needle.len >= 15 {
+            let base = rest.len - needle.len;
+            if f.two.bytes & ((1 as u64) << (rest[base] & 63)) == 0 { break; }
+            let end = base + f.two.critical;
+            if rest[end - 1] == byte { break; }
+            let hits = goosimd::load<goosimd::U8x16>(rest[end - 16..end]).eq(byte).to_bits();
+            if hits != 0 {
+                rest = rest[..rest.len - (15 - (63 - clz(hits)))];
+                break;
+            }
+            rest = rest[..rest.len - 16];
         }
-        let window = rest[base..];
+    }
+    var memory = needle.len;
+    var base = rest.len - needle.len;
+    while base >= 0 {
+        if f.two.bytes & ((1 as u64) << (rest[base] & 63)) == 0 {
+            base -= needle.len; memory = needle.len; continue;
+        }
+        let window = rest[base..base + needle.len];
         var i = if periodic { min(f.two.critical, memory) } else { f.two.critical };
         if i > 0 && needle[i - 1] == window[i - 1] {
             i -= 1;
+            let left = needle[..i];
+            let right = window[..i];
             while i >= 8 {
-                if goosimd::load_u64(needle[i - 8..]) != goosimd::load_u64(window[i - 8..]) { break; }
+                if goosimd::load_u64(left[i - 8..i]) != goosimd::load_u64(right[i - 8..i]) { break; }
                 i -= 8;
             }
-            while i > 0 && needle[i - 1] == window[i - 1] { i -= 1; }
+            while i > 0 && left[i - 1] == right[i - 1] { i -= 1; }
         }
         if i > 0 {
-            rest = rest[..rest.len - (f.two.critical - i + 1)];
+            base -= f.two.critical - i + 1;
             memory = needle.len;
         } else {
             var j = f.two.critical;
             let stop = if periodic { memory } else { needle.len };
             while j < stop && needle[j] == window[j] { j += 1; }
             if j >= stop { return base; }
-            rest = rest[..rest.len - f.two.period];
+            base -= f.two.period;
             memory = needle.len - f.two.memory;
         }
     }
@@ -710,15 +816,44 @@ fn find(s: const u8[:], needle: const u8[:]) -> i64 {
 // assert(goostr::rfind("abc", "") == 3);
 // assert(goostr::rfind("abc", "x") == -1);
 // ```
-fn rfind(s: const u8[:], needle: const u8[:]) -> i64 {
-    if s.len < 64 { return find_small(s, needle, true); }
-    if needle.len > s.len { return -1; }
-    if needle.len >= 2 && needle.len <= 32 {
+inline fn rfind(s: const u8[:], needle: const u8[:]) -> i64 {
+    // Keep repeated suffix hits in the caller instead of paying for the
+    // out-of-line searcher's call and stack setup on every match. The full
+    // search stays separate so it doesn't expand every caller's hot loop.
+    if s.len >= 64 && needle.len >= 2 && needle.len <= 32 {
         let last = s.len - needle.len;
         if equal_short(s[last..], needle) { return last; }
+    }
+    return rfind_search(s, needle);
+}
+
+fn rfind_search(s: const u8[:], needle: const u8[:]) -> i64 {
+    if s.len < 64 { return find_small(s, needle, true); }
+    if needle.len > s.len { return -1; }
+    if needle.len == 0 { return s.len; }
+    if needle.len == 1 { return byte_search(s, needle[0], true); }
+    if needle.len <= 32 {
         let a, b = rare_pair(needle);
         return packed_reverse(s, needle, a, b);
     }
+    let at = rfind_tail(s, needle);
+    if at >= 0 { return at; }
     let f = finder_reverse(needle);
-    return rfind(f, s);
+    return rfind_two_way(f, s);
+}
+
+fn rfind_tail(s: const u8[:], needle: const u8[:]) -> i64 {
+    // Probe the last 16 starts before paying for Two-Way preprocessing.
+    // Verify only the rightmost candidate: false positives fall back,
+    // keeping speculative work bounded even for repetitive needles.
+    var at = s.len - needle.len;
+    if at >= 15 {
+        let base = at - 15;
+        let first = goosimd::load<goosimd::U8x16>(s[base..]).eq(needle[0]);
+        let last = goosimd::load<goosimd::U8x16>(s[s.len - 16..]).eq(needle[needle.len - 1]);
+        let hits = first.bit_and(last).to_bits();
+        at = if hits == 0 { -1 } else { base + 63 - clz(hits) };
+    }
+    if at >= 0 && s[at..at + needle.len] == needle { return at; }
+    return -1;
 }
