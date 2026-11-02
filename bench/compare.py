@@ -95,6 +95,8 @@ def cases():
         ("periodic-middle-miss", b"a" * (1 << 20), b"a" * 127 + b"b" + b"a" * 128),
         ("periodic-hit", b"ab" * (1 << 19), b"ab" * 128),
         ("false-pairs", (b"az" * (1 << 19)), b"az" * 63 + b"bz"),
+        ("duplicate-pair-reject", b"\0x\xddz" * (1 << 18), b"\0\0\xdd\xdd\0"),
+        ("duplicate-pair-dense", b"\0" * (1 << 20), b"\0\0\xdd\xdd\0"),
         ("near-periodic-miss", triples, near_periodic),
         ("near-periodic-end", triples + near_periodic, near_periodic),
         ("long-needle", text, text[13:2061]),
@@ -146,35 +148,50 @@ def main():
     parser.add_argument("--baseline-exe", type=Path, help="also time the former goostr implementation")
     parser.add_argument("--save-exe", type=Path, help="retain the Goose executable")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--samples", type=int, default=5)
-    parser.add_argument("--sample-ms", type=int, default=50, help="minimum time per measured batch")
+    parser.add_argument("--samples", type=int, help="measured batches (default 5, or 3 for quick)")
+    parser.add_argument("--sample-ms", type=int, help="minimum batch time in ms (default 50, or 5 for quick)")
     parser.add_argument("--cc", choices=["clang", "gcc"], default="clang")
     parser.add_argument("--target", choices=["runtime", "baseline", "avx2", "scalar"], default="runtime",
                         help="AVX2 requires a capable CPU; runtime dispatch requires Clang/x86")
-    parser.add_argument("--suite", choices=["substring", "byteset", "boundary", "upstream", "records"], default="substring")
-    parser.add_argument("--memchr-checkout", type=Path, help="memchr 2.8.3 checkout for --suite upstream (Python 3.11+)")
+    parser.add_argument("--suite", choices=["substring", "byteset", "boundary", "upstream", "records", "quick"], default="substring")
+    parser.add_argument("--memchr-checkout", type=Path, help="memchr 2.8.3 checkout for upstream/quick suites (Python 3.11+)")
     parser.add_argument("--record-corpus", type=Path, help="find-memchr's in.gz for --suite records")
     parser.add_argument("--case", action="append", help="case name glob; repeat to select multiple groups")
     parser.add_argument("--modes", nargs="+", choices=SUBSTRING_MODES + BYTESET_MODES + COUNT_MODES + ["records"])
     options = parser.parse_args()
+    if options.samples is None:
+        options.samples = 3 if options.suite == "quick" else 5
+    if options.sample_ms is None:
+        options.sample_ms = 5 if options.suite == "quick" else 50
     if options.samples < 3:
         parser.error("--samples must be at least 3")
     if options.sample_ms < 1:
         parser.error("--sample-ms must be positive")
     target_ns = options.sample_ms * 1_000_000
     allowed_modes = BYTESET_MODES if options.suite == "byteset" else SUBSTRING_MODES
-    if options.suite == "upstream":
+    if options.suite in ("upstream", "quick"):
         allowed_modes = SUBSTRING_MODES + COUNT_MODES
     elif options.suite == "records":
         allowed_modes = ["records"]
-    modes = options.modes or allowed_modes
+    modes = options.modes or (COUNT_MODES + ["prepared-find"] if options.suite == "quick" else allowed_modes)
     if any(mode not in allowed_modes for mode in modes):
         parser.error("--modes must match --suite")
     upstream = None
-    if options.suite == "upstream":
+    if options.suite in ("upstream", "quick"):
         if not options.memchr_checkout:
-            parser.error("--suite upstream requires --memchr-checkout")
+            parser.error(f"--suite {options.suite} requires --memchr-checkout")
         selected, upstream = upstream_cases(options.memchr_checkout)
+        if options.suite == "quick":
+            selected = [case for case in selected if case[0] in (
+                "byterank/binary", "pathological/defeat-simple-vector-alphabet",
+                "pathological/rare-repeated-small-match", "subtitles/common/huge-en-that",
+                "subtitles/common/huge-en-you", "subtitles/common/huge-zh-that")]
+            selected += [case for case in cases() if case[0] in (
+                "tiny-hit", "tiny-miss", "needle-33-tail-miss", "long-needle-tail-miss",
+                "periodic-miss", "periodic-reverse", "false-pairs", "near-periodic-miss", "near-periodic-end",
+                "duplicate-pair-reject", "duplicate-pair-dense")]
+            selected += [case for case in boundary_cases() if case[0] in (
+                "n64-p3-miss", "n65-p33-middle")]
     elif options.suite == "records":
         if not options.record_corpus:
             parser.error("--suite records requires --record-corpus")
@@ -192,20 +209,22 @@ def main():
         selected = [case for case in selected if any(fnmatch.fnmatchcase(case[0], glob) for glob in options.case)]
     if not selected:
         parser.error("no cases matched")
-    flags = ["-O2"] + {"runtime": [], "baseline": ["-DGS_SIMD=0"],
+    flags = ["-O3"] + {"runtime": [], "baseline": ["-DGS_SIMD=0"],
                        "avx2": ["-DGS_SIMD=0", "-mavx2"],
                        "scalar": ["-DGS_SIMD=0", "-DGOOSIMD_SCALAR"]}[options.target]
     with tempfile.TemporaryDirectory(prefix="goostr-bench-") as tmp:
         tmp = Path(tmp)
         barrier = tmp / "opaque.o"
-        subprocess.run(["clang", "-O2", "-c", str(ROOT / "bench/opaque.c"), "-o", str(barrier)], check=True)
+        subprocess.run(["clang", "-O3", "-c", str(ROOT / "bench/opaque.c"), "-o", str(barrier)], check=True)
         subprocess.run(["cargo", "rustc", "--locked", "--release", "--manifest-path",
                         str(ROOT / "tests/oracle/Cargo.toml"), "--features", "bench", "--bin", "search-bench",
-                        "--", "-C", f"link-arg={barrier}"], check=True)
+                        "--", "-C", f"link-arg={barrier}"], check=True,
+                       env={**os.environ, "CARGO_PROFILE_RELEASE_OPT_LEVEL": "3"})
         rust = ROOT / "tests/oracle/target/release/search-bench"
         goose = (options.goose_exe or options.save_exe or tmp / "search").resolve()
         if not options.goose_exe:
             cfile = tmp / "search.c"
+            # Goose's -O2 is its maximum inlining level, not the C compiler's.
             subprocess.run(["goose", "--standalone", "-O2", "-o", str(cfile),
                             str(ROOT / "bench/search.goose")], check=True)
             libs = ["-lm", "-pthread"] + (["-ldl"] if platform.system() == "Linux" else [])
@@ -274,7 +293,7 @@ def main():
                         bstr="1.13.1", memchr="2.8.3", goose_flags=None if options.goose_exe else flags,
                         cc=None if options.goose_exe else options.cc,
                         target=None if options.goose_exe else options.target, rust_profile="release",
-                        rust_opt_level=os.environ.get("CARGO_PROFILE_RELEASE_OPT_LEVEL", "3"),
+                        rust_opt_level="3",
                         suite=options.suite, calibration_target_ms=options.sample_ms, samples=options.samples,
                         prebuilt_goose=bool(options.goose_exe), warmup_passes=1,
                         scheduling=(f"CPU affinity {sorted(os.sched_getaffinity(0))}"

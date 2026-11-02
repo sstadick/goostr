@@ -109,15 +109,17 @@ fn main() {
             count += 1;
         }
     }
-    // Dense false pair matches must not hide earlier full matches. Exercise
-    // each third-byte position and choose the last of two neighboring matches,
-    // including the highest SIMD lane. Also check a longer periodic needle.
-    for n in ["qbz", "bqz", "qzb", "zzazza"] {
-        for at in [-1, 0, 31, 512, 1200 - n.len] {
+    // Dense false pair matches must not hide full matches. Exercise each
+    // third-byte position, duplicate pair values, and neighboring matches
+    // across SIMD lanes, the runtime-dispatch cutoff, and the final block.
+    for n in ["qbz", "bqz", "qzb", "zzazza", "\0\0\xDD\xDD\0"] {
+        for at in [-1, 0, 31, 32, 63, 64, 512, 1023, 1024, 1200 - n.len] {
             var h: u8[>..] = [];
             for i in 400 {
                 if n.len == 3 {
                     for ch in n { h.push(if ch == 'b' { 'a' } else { ch }); }
+                } else if n[0] == 0 {
+                    h.append("\0\0\0");
                 } else { h.append("zzz"); }
             }
             if at >= 0 {
@@ -190,8 +192,8 @@ fn main() {
         var n: u8[>..] = [];
         n.resize(257, 'a');
         n[255] = 128;
-        for lane in 0..17 {
-            for trailing in [0, 15, 16] {
+        for lane in 0..33 {
+            for trailing in [0, 15, 16, 31, 32] {
                 let at = 2048 + lane;
                 var h: u8[>..] = [];
                 h.resize(at + n.len + trailing, 'a');

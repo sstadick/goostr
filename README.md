@@ -160,42 +160,57 @@ we have benchmarked so far, not a representative comparison of the libraries.
 Results depend on the input, hardware, compiler, and build settings; measure
 your own workload before drawing conclusions.
 
-These warm-cache microbenchmarks compare goostr
-[`53d16e8`](https://github.com/sstadick/goostr/commit/53d16e834e8c81dbe95c9f1c4ac549f520b60496)
-with bstr 1.13.1 (memchr 2.8.3) on a Ryzen 9 3950X, Linux x86-64.
-Goostr uses Goose `b4609902` and Clang 18.1.3; bstr uses Rust 1.97.1.
-Both use optimization level 2 and runtime SIMD selection, with AVX2 available.
+These warm-cache measurements were taken on November 2, 2026, on a Ryzen 9
+3950X running Linux x86-64. They compare goostr with bstr 1.13.1 (memchr 2.8.3).
+Goostr uses Goose `v2026.3-145-g6958c54e-dirty`, GCC 13.3 or Clang 18.1.3;
+bstr uses Rust 1.97.1. Native C and Rust builds use optimization level 3.
+Clang uses runtime SIMD selection with AVX2 available; GCC uses the baseline
+target because Goose's runtime dispatch requires Clang.
 
-Times are medians of nine measured batches, calibrated to at least 50 ms,
-pinned to CPU 4. Both runners use identical inputs and the same opaque C
-barrier, warm up before timing, rotate execution order, and check results.
+Both runners use identical inputs and the same opaque C barrier, warm up
+before timing, rotate execution order, check results, and run on CPU 4.
 File I/O and process startup are excluded. Prepared searches exclude finder
-construction on both sides; ordinary substring searches include it.
+construction on both sides. Counts use repeated one-shot searches, including
+finder construction, and do not count overlapping matches.
 
-**Ratio = goostr / bstr; lower is better for goostr.** This selection includes
-wins and losses from 128 case/operation comparisons, not an overall score.
+**Ratio = goostr / bstr; lower is better for goostr.** Times below are medians
+of nine batches of at least 30 ms. These are selected workloads, not an
+overall score.
 
-| Input / scenario | Operation | goostr | bstr | Ratio |
-| --- | --- | ---: | ---: | ---: |
-| 23 B, substring hit | `find` | 5.7 ns | 35.5 ns | 0.16× |
-| Same, reusable finder | prepared `find` | 5.0 ns | 8.2 ns | 0.62× |
-| 63 B, one-byte miss | `rfind` | 5.6 ns | 18.8 ns | 0.30× |
-| 64 B, three-byte miss | prepared `find` | 8.5 ns | 7.6 ns | 1.12× |
-| 1 MiB text, substring miss | `find` | 16.60 µs | 15.95 µs | 1.04× |
-| Same, searching backward | `rfind` | 14.26 µs | 145.53 µs | 0.10× |
-| 1 MiB random bytes, substring miss | `find` | 16.45 µs | 23.02 µs | 0.71× |
-| 1 MiB, one-byte miss | `find` | 11.02 µs | 10.73 µs | 1.03× |
-| 1 MiB + 33 B, 33-byte needle at end | `rfind` | 129.4 ns | 110.6 ns | 1.17× |
-| 1 MiB repetitive data, 256-byte needle miss | `find` | 1,206 µs | 1,678 µs | 0.72× |
-| 1 MiB, two-byte set miss | `find_byteset` | 14.22 µs | 13.33 µs | 1.07× |
-| 1 MiB, three-byte set miss | `find_byteset` | 17.04 µs | 16.08 µs | 1.06× |
-| 1 MiB, four-byte set miss | `find_byteset` | 355.91 µs | 524.61 µs | 0.68× |
-| 768 KiB, all bytes in a three-byte set | `find_not_byteset` | 12.90 µs | 399.86 µs | 0.03× |
+| Compiler | Input / scenario | Operation | goostr | bstr | Ratio |
+| --- | --- | --- | ---: | ---: | ---: |
+| GCC | 1 MiB, long-needle near-match miss | prepared `find` | 28.14 µs | 21.08 µs | 1.34× |
+| Clang | Same | prepared `find` | 18.26 µs | 21.60 µs | 0.85× |
+| GCC | 1 MiB repeated `a`, needle `a` × 255 + `b` | prepared `find` | 90.60 µs | 1,709.90 µs | 0.05× |
+| Clang | Same | prepared `find` | 90.22 µs | 1,712.31 µs | 0.05× |
+| GCC | 1 MiB repeated `zza`, 116-byte needle miss | prepared `find` | 25.52 µs | 36.08 µs | 0.71× |
+| Clang | Same | prepared `find` | 28.75 µs | 35.61 µs | 0.81× |
+| GCC | Same, needle appended at end | prepared `find` | 25.04 µs | 35.72 µs | 0.70× |
+| Clang | Same | prepared `find` | 30.87 µs | 35.63 µs | 0.87× |
+| GCC | Same | reverse count | 702.43 µs | 803.04 µs | 0.87× |
+| Clang | Same | reverse count | 907.96 µs | 802.34 µs | 1.13× |
 
-Compiler settings matter: Rust's default release optimization level is 3,
-while this comparison uses level 2 for both libraries. These results do not
-predict cold-cache, other-platform, or whole-library
-performance. See the benchmark commands below to measure your workload.
+The quick suite covers 57 case/operation combinations per compiler. Its
+three batches of at least 5 ms are useful for screening, but less precise
+than the longer measurements above. Two examples from that suite:
+
+| Compiler | Input | Operation | goostr | bstr | Ratio |
+| --- | --- | --- | ---: | ---: | ---: |
+| GCC | Upstream adversarial alphabet, `qbz` needle | forward count | 43.93 µs | 157.56 µs | 0.28× |
+| Clang | Same | forward count | 28.56 µs | 160.34 µs | 0.18× |
+| GCC | 31.8 MiB ripgrep executable, five-byte needle | forward count | 3.84 ms | 8.94 ms | 0.43× |
+| Clang | Same | forward count | 3.27 ms | 9.06 ms | 0.36× |
+
+Raw samples, input hashes, source hashes, and toolchain details:
+[GCC measurements](bench/results/2026-11-02-gcc-confirm.json),
+[Clang measurements](bench/results/2026-11-02-clang-confirm.json),
+[GCC quick suite](bench/results/2026-11-02-gcc-quick.json), and
+[Clang quick suite](bench/results/2026-11-02-clang-quick.json).
+The JSON baseline columns refer to v0.2.1 built at the same optimization level.
+
+Code layout can affect these timings even when a search loop's instructions
+are unchanged. These results do not predict cold-cache, other-platform, or
+whole-library performance. Use the commands below to measure your workload.
 
 ## Contributing
 
@@ -223,17 +238,19 @@ exclude file I/O, include a warm-up pass, and retain individual samples and
 compiler/CPU details in JSON. Pin the benchmark to one CPU where possible;
 run compiler/target comparisons sequentially. See `--help` for other options.
 
-For the table's matched-O2 configuration on Linux, use:
+The runner builds native C and Rust code at optimization level 3. Goose's
+separate `-O2` option selects its maximum inlining level; it does not limit the
+native C compiler to `-O2`. For longer measurements on Linux, use:
 
 ```sh
-CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
+taskset -c 4 python3 bench/compare.py \
   --cc clang --target runtime --suite substring --samples 9 --sample-ms 50 \
-  --output substring-o2.json
+  --output substring-o3.json
 ```
 
 Repeat with `--suite byteset` or `--suite boundary` for those operations.
-Choose an available CPU on your machine. Without the environment variable,
-Cargo uses release optimization level 3; the Goose C build still uses `-O2`.
+Choose an available CPU on your machine. The runner explicitly sets Cargo's
+release optimization level to 3, even if your environment selects another level.
 
 ### Upstream search corpora
 
@@ -247,7 +264,7 @@ being redistributed here. Requires Python 3.11+.
 
 ```sh
 git clone --depth 1 --branch 2.8.3 https://github.com/BurntSushi/memchr ../memchr-bench
-CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
+taskset -c 4 python3 bench/compare.py \
   --suite upstream --memchr-checkout ../memchr-bench --cc clang --target runtime \
   --samples 9 --sample-ms 50 --output upstream.json
 ```
@@ -258,6 +275,23 @@ is included in each one-shot search. The four `find`/`rfind` modes instead measu
 the first or last match on the same inputs: they are **adapted workloads**, not
 upstream count timings. Prepared modes exclude finder construction. Use
 `--modes count rcount` or `--case 'subtitles/*'` to select a subset.
+
+For development, `--suite quick` runs 19 selected cases with `count`, `rcount`,
+and `prepared-find`: upstream text, binary, and pathological workloads plus
+small-input, long-needle, periodic, duplicate-byte, and boundary controls. It
+defaults to three 5 ms samples instead of five 50 ms samples. With prebuilt
+executables, the 57 comparisons take roughly 13 seconds on the machine above:
+
+```sh
+taskset -c 4 python3 bench/compare.py \
+  --suite quick --memchr-checkout ../memchr-bench \
+  --cc clang --save-exe /tmp/goostr-candidate --output quick.json
+```
+
+Use `--goose-exe /tmp/goostr-candidate` to rerun without recompiling Goose,
+and `--baseline-exe /tmp/goostr-before` to compare with a saved earlier build.
+The quick suite is an iteration screen, not a substitute for the full suites
+and longer confirmation runs (`--samples 9 --sample-ms 50`).
 
 This is a library comparison, not a ripgrep benchmark. It excludes filesystem
 traversal, regex matching, output formatting, and I/O, and does not reproduce
@@ -275,7 +309,7 @@ reads or printing. The corpus is hash-checked and is not production data.
 ```sh
 git clone https://github.com/gsauthof/find-memchr ../find-memchr-bench
 git -C ../find-memchr-bench checkout 6b0e99b54c9b60b9aaf615d33437a8139162524f
-CARGO_PROFILE_RELEASE_OPT_LEVEL=2 taskset -c 4 python3 bench/compare.py \
+taskset -c 4 python3 bench/compare.py \
   --suite records --record-corpus ../find-memchr-bench/in.gz \
   --cc clang --target runtime --samples 9 --sample-ms 50 --output records.json
 ```

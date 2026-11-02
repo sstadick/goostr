@@ -62,6 +62,18 @@ inline fn packed_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefi
     let count = s.len - needle.len + 1;
     var xs = s[a..a + count];
     var ys = s[b..b + count];
+    // Dense pair matches can be rejected a block at a time with a third
+    // position. Keep both original checks: repeated bytes can be selective.
+    var c = a;
+    if !prefilter {
+        if needle.len == 3 { c = 3 - a - b; }
+        else if x == y {
+            if equal_short(s, needle) { return 0; }
+            for i in needle.len {
+                if needle[i] != x { c = i; break; }
+            }
+        }
+    }
     // Each lane represents a start position with room for the whole needle.
     while xs.len >= 32 {
         let vx = goosimd::load<goosimd::U8x32>(xs).eq(x);
@@ -81,6 +93,10 @@ inline fn packed_scan(s: const u8[:], needle: const u8[:], a: i64, b: i64, prefi
                 ys = ys[64..];
             }
             continue;
+        }
+        if c != a && (hits & (hits - 1)) != 0 {
+            let start = count - xs.len;
+            hits &= goosimd::load<goosimd::U8x32>(s[start + c..]).eq(needle[c]).to_bits();
         }
         while hits != 0 {
             let at = count - xs.len + ctz(hits);
@@ -625,13 +641,17 @@ fn find(f: const Finder&, s: const u8[:]) -> i64 {
         if candidates >= 16 && candidates < 32 { return packed_small(s, needle, f.a, f.b, false); }
         return packed(s, needle, f.a, f.b, false);
     }
-    if f.two.memory > 0 { return find_two_way(f, s, true); }
-    return find_two_way(f, s, false);
+    return find_two_way(f, s);
+}
+
+fn find_two_way(f: const Finder&, s: const u8[:]) -> i64 {
+    if f.two.memory > 0 { return find_two_way_scan(f, s, true); }
+    return find_two_way_scan(f, s, false);
 }
 
 // Specialize the periodic and nonperiodic loops, as memchr does, so ordinary
 // needles don't pay for tracking the part of a periodic match already seen.
-inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 {
+inline fn find_two_way_scan(f: const Finder&, s: const u8[:], periodic: bool) -> i64 {
     let needle = f.needle;
     let two = f.two;
     let last = s.len - needle.len;
@@ -663,17 +683,17 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
             memory = 0;
             // Skip starts that cannot match the critical byte, even when
             // the pair filter has retired. Keep the probe bounded when
-            // that byte is common, and leave fewer than 16 starts scalar.
-            if last - pos < 15 { continue; }
+            // that byte is common, and leave fewer than 32 starts scalar.
+            if last - pos < 31 { continue; }
             let at = pos + two.critical;
-            let probe = s[at..at + 16];
+            let probe = s[at..at + 32];
             let byte = needle[two.critical];
             // Dense matches need only one or two byte comparisons.
             if probe[0] != byte {
                 if probe[1] == byte { pos += 1; }
                 else {
-                    let hits = goosimd::load<goosimd::U8x16>(probe).eq(byte).to_bits();
-                    if hits == 0 { pos += 16; continue; }
+                    let hits = goosimd::load<goosimd::U8x32>(probe).eq(byte).to_bits();
+                    if hits == 0 { pos += 32; continue; }
                     pos += ctz(hits);
                 }
             }
@@ -692,12 +712,14 @@ inline fn find_two_way(f: const Finder&, s: const u8[:], periodic: bool) -> i64 
         } else {
             var j = two.critical;
             let stop = if periodic { memory } else { 0 };
+            let left = needle[..j];
+            let right = window[..j];
             // Left-half failures all shift by the period; their exact
             // mismatch position is unnecessary, so compare words first.
-            while j - stop >= 8 && goosimd::load_u64(needle[j - 8..j]) ==
-                goosimd::load_u64(window[j - 8..j]) { j -= 8; }
+            while j - stop >= 8 && goosimd::load_u64(left[j - 8..j]) ==
+                goosimd::load_u64(right[j - 8..j]) { j -= 8; }
             if j - stop < 8 {
-                while j > stop && needle[j - 1] == window[j - 1] { j -= 1; }
+                while j > stop && left[j - 1] == right[j - 1] { j -= 1; }
             }
             if j <= stop { return pos; }
             pos += two.period;
